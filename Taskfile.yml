@@ -1,0 +1,75 @@
+version: "3"
+
+# ---------------------------------------------------------------------------
+# hexcap — Rust TUI packet capture with libpcap + hexyl hex dump
+# ---------------------------------------------------------------------------
+
+tasks:
+  # --- Quality Gates ---
+  check:all:
+    desc: "Run all quality gates (format, lint, test)"
+    deps: [format, lint, test]
+    cmds:
+      - echo "All checks passed!"
+
+  format:
+    desc: "Check formatting"
+    cmds:
+      - cargo fmt --all -- --check
+
+  fmt:
+    desc: "Format all Rust code (write mode)"
+    cmds:
+      - cargo fmt --all
+
+  lint:
+    desc: "Run clippy on all targets"
+    cmds:
+      - cargo clippy --all-targets -- -D warnings
+
+  test:
+    desc: "Run all tests"
+    cmds:
+      - cargo test
+
+  # --- Build ---
+  build:
+    desc: "Build (debug)"
+    cmds:
+      - cargo build
+
+  build:release:
+    desc: "Build optimized release binary"
+    deps: [check:all]
+    cmds:
+      - cargo build --release
+
+  # --- Run ---
+  run:
+    desc: "Build release and run hexcap"
+    deps: [build:release]
+    cmds:
+      - sudo ./target/release/hexcap
+
+  run:dev:
+    desc: "Build debug and run hexcap"
+    deps: [build]
+    cmds:
+      - sudo ./target/debug/hexcap
+
+  # --- Install ---
+  install:
+    desc: "Build release and install to ~/.cargo/bin"
+    cmds:
+      - cargo install --path . --locked
+
+  # --- Utilities ---
+  loc:
+    desc: "Show lines of code statistics"
+    cmds:
+      - tokei
+
+  clean:
+    desc: "Remove build artifacts"
+    cmds:
+      - cargo clean
