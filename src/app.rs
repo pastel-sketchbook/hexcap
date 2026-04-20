@@ -6,7 +6,7 @@ use std::time::Instant;
 use crate::config;
 use crate::expert::Severity;
 use crate::packet::{
-    CapturedPacket, FlowKey, Protocol, extract_tcp_payload, matches_display_filter,
+    CapturedPacket, FlowKey, Protocol, extract_tcp_seq_payload, matches_display_filter,
 };
 use crate::process::ProcessInfo;
 use crate::tcp_analysis::TcpAnalyser;
@@ -781,9 +781,9 @@ impl App {
         }
         let flow = FlowKey::new(&pkt.src, &pkt.dst);
 
-        // Reassemble: collect TCP payload bytes from all packets in this flow,
-        // in capture order. This is a simple concatenation (not sequence-number ordered).
-        let mut payload = Vec::new();
+        // Reassemble: collect TCP segments with sequence numbers, sort by seq,
+        // and deduplicate overlapping bytes for proper stream reconstruction.
+        let mut segments: Vec<(u32, Vec<u8>)> = Vec::new();
         for p in &self.packets {
             if p.protocol != Protocol::Tcp {
                 continue;
@@ -792,9 +792,49 @@ impl App {
             if pkt_flow != flow {
                 continue;
             }
-            // Extract TCP payload: skip Ethernet(14) + IP header + TCP header.
-            if let Some(tcp_payload) = extract_tcp_payload(&p.data) {
-                payload.extend_from_slice(tcp_payload);
+            if let Some((seq, tcp_payload)) = extract_tcp_seq_payload(&p.data)
+                && !tcp_payload.is_empty()
+            {
+                segments.push((seq, tcp_payload.to_vec()));
+            }
+        }
+
+        // Sort segments by sequence number.
+        segments.sort_by_key(|(seq, _)| *seq);
+
+        // Merge segments, skipping overlaps and retransmissions.
+        let mut payload = Vec::new();
+        let mut next_seq: Option<u32> = None;
+        for (seq, data) in &segments {
+            match next_seq {
+                None => {
+                    // First segment — accept fully.
+                    payload.extend_from_slice(data);
+                    next_seq = Some(seq.wrapping_add(data.len() as u32));
+                }
+                Some(expected) => {
+                    // Check if this segment starts at or after expected.
+                    let diff = seq.wrapping_sub(expected);
+                    if diff == 0 {
+                        // Exactly in order.
+                        payload.extend_from_slice(data);
+                        next_seq = Some(seq.wrapping_add(data.len() as u32));
+                    } else if diff < 0x8000_0000 {
+                        // Gap (missing data) — accept with gap.
+                        payload.extend_from_slice(data);
+                        next_seq = Some(seq.wrapping_add(data.len() as u32));
+                    } else {
+                        // Overlap or retransmission (seq < expected).
+                        let overlap = expected.wrapping_sub(*seq) as usize;
+                        if overlap < data.len() {
+                            // Partial new data after the overlap.
+                            payload.extend_from_slice(&data[overlap..]);
+                            next_seq =
+                                Some(seq.wrapping_add(data.len() as u32));
+                        }
+                        // Else: fully retransmitted segment — skip.
+                    }
+                }
             }
         }
 

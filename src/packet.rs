@@ -660,6 +660,36 @@ fn serialize_bytes_as_hex<S: serde::Serializer>(
 // Shared helpers (used by both TUI and headless paths)
 // ---------------------------------------------------------------------------
 
+/// Extract the TCP sequence number and payload from a raw Ethernet frame.
+/// Returns `(seq, payload_slice)` or `None` if not a TCP packet with parseable headers.
+pub fn extract_tcp_seq_payload(data: &[u8]) -> Option<(u32, &[u8])> {
+    if data.len() < 14 {
+        return None;
+    }
+    let ethertype = u16::from_be_bytes([data[12], data[13]]);
+    let ip = &data[14..];
+    let ip_hdr_len = match ethertype {
+        0x0800 => {
+            if ip.is_empty() {
+                return None;
+            }
+            ((ip[0] & 0x0F) as usize) * 4
+        }
+        0x86DD => 40,
+        _ => return None,
+    };
+    if ip.len() < ip_hdr_len + 20 {
+        return None;
+    }
+    let tcp = &ip[ip_hdr_len..];
+    let seq = u32::from_be_bytes([tcp[4], tcp[5], tcp[6], tcp[7]]);
+    let tcp_hdr_len = ((tcp[12] >> 4) as usize) * 4;
+    if tcp.len() <= tcp_hdr_len {
+        return Some((seq, &[]));
+    }
+    Some((seq, &tcp[tcp_hdr_len..]))
+}
+
 /// Extract TCP payload from a raw Ethernet frame.
 ///
 /// Skips Ethernet header (14 bytes), IP header (variable), and TCP header (variable).
