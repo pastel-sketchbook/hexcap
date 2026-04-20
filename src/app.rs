@@ -209,6 +209,8 @@ pub struct App {
 
     // -- Flow graph overlay --
     pub show_flow_graph: bool,
+    /// Selected packet index within the flow graph overlay.
+    pub flow_graph_selected: usize,
 
     // -- Time display --
     pub time_format: TimeFormat,
@@ -345,6 +347,7 @@ impl App {
             show_expert: false,
             show_proto_hierarchy: false,
             show_flow_graph: false,
+            flow_graph_selected: 0,
             time_format: TimeFormat::Absolute,
             time_reference: None,
             goto_buf: String::new(),
@@ -744,6 +747,20 @@ impl App {
     pub fn open_flows(&mut self) {
         self.view = View::Flows;
         self.flow_selected = 0;
+    }
+
+    /// Return indices into `self.packets` for the currently selected flow.
+    pub fn flow_graph_packet_indices(&self) -> Vec<usize> {
+        let Some(flow) = self.flows.get(self.flow_selected) else {
+            return vec![];
+        };
+        let flow_key = &flow.key;
+        self.packets
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| crate::packet::FlowKey::new(&p.src, &p.dst) == *flow_key)
+            .map(|(i, _)| i)
+            .collect()
     }
 
     pub fn close_flows(&mut self) {

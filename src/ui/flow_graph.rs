@@ -62,13 +62,20 @@ pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
 
     // Max visible packet rows.
     let max_rows = area.height.saturating_sub(8) as usize;
-    let visible = if packets.len() > max_rows {
-        &packets[..max_rows]
-    } else {
-        &packets
-    };
+    let selected = app.flow_graph_selected.min(packets.len().saturating_sub(1));
 
-    for pkt in visible {
+    // Compute scroll window to keep selected row visible.
+    let scroll_start = if selected >= max_rows {
+        selected - max_rows + 1
+    } else {
+        0
+    };
+    let scroll_end = (scroll_start + max_rows).min(packets.len());
+    let visible = &packets[scroll_start..scroll_end];
+
+    for (vi, pkt) in visible.iter().enumerate() {
+        let pkt_idx = scroll_start + vi;
+        let is_selected = pkt_idx == selected;
         let is_left_to_right =
             pkt.src == *left || (pkt.src != *right && strip_port(&pkt.src) == strip_port(left));
 
@@ -111,23 +118,43 @@ pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
             (lp, center_width - content_len - lp)
         };
 
+        // Apply highlight background to all spans if selected.
+        if is_selected {
+            let hl = Style::default().bg(theme.highlight_bg);
+            for span in &mut center_spans {
+                span.style = span.style.patch(hl);
+            }
+        }
+
+        let pipe_style = if is_selected {
+            Style::default().fg(theme.muted).bg(theme.highlight_bg)
+        } else {
+            muted
+        };
+        let pad_style = if is_selected {
+            Style::default().bg(theme.highlight_bg)
+        } else {
+            Style::default()
+        };
+
         let mut row_spans = Vec::new();
-        row_spans.push(Span::styled(format!("{:>col_width$}", "│"), muted));
+        row_spans.push(Span::styled(format!("{:>col_width$}", "│"), pipe_style));
         if left_pad > 0 {
-            row_spans.push(Span::raw(" ".repeat(left_pad)));
+            row_spans.push(Span::styled(" ".repeat(left_pad), pad_style));
         }
         row_spans.extend(center_spans);
         if right_pad > 0 {
-            row_spans.push(Span::raw(" ".repeat(right_pad)));
+            row_spans.push(Span::styled(" ".repeat(right_pad), pad_style));
         }
-        row_spans.push(Span::styled(format!("{:<col_width$}", "│"), muted));
+        row_spans.push(Span::styled(format!("{:<col_width$}", "│"), pipe_style));
 
         lines.push(Line::from(row_spans));
     }
 
     if packets.len() > max_rows {
+        let hidden = packets.len() - max_rows;
         lines.push(Line::from(Span::styled(
-            format!("  … {} more packets", packets.len() - max_rows),
+            format!("  … {hidden} more packets (j/k navigate, ↵ detail)"),
             muted,
         )));
     }

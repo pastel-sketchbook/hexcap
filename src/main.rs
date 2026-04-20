@@ -574,6 +574,25 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
     if app.show_flow_graph {
         match code {
             KeyCode::Esc | KeyCode::Char('G' | 'q') => app.show_flow_graph = false,
+            KeyCode::Char('j') | KeyCode::Down => {
+                let count = app.flow_graph_packet_indices().len();
+                if count > 0 && app.flow_graph_selected < count - 1 {
+                    app.flow_graph_selected += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                app.flow_graph_selected = app.flow_graph_selected.saturating_sub(1);
+            }
+            KeyCode::Enter => {
+                let indices = app.flow_graph_packet_indices();
+                if let Some(&pkt_idx) = indices.get(app.flow_graph_selected) {
+                    app.show_flow_graph = false;
+                    app.paused = true;
+                    app.selected = pkt_idx;
+                    app.view = View::Detail;
+                    app.hex_scroll = 0;
+                }
+            }
             _ => {}
         }
         return false;
@@ -671,7 +690,10 @@ fn handle_flows_key(app: &mut App, code: KeyCode) {
         KeyCode::Char('j') | KeyCode::Down => app.flow_next(),
         KeyCode::Char('k') | KeyCode::Up => app.flow_prev(),
         KeyCode::Enter => app.flow_select(),
-        KeyCode::Char('G') => app.show_flow_graph = true,
+        KeyCode::Char('G') => {
+            app.flow_graph_selected = 0;
+            app.show_flow_graph = true;
+        }
         KeyCode::Char('t') => app.next_theme(),
         _ => {}
     }
