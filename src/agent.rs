@@ -51,18 +51,19 @@ use serde::{Deserialize, Serialize};
 /// How an agent preset should be spawned.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SpawnMode {
-    /// Run non-interactively: pipe stdout into the agent pane.
-    Prompt,
-    /// Open in a terminal split pane (Ghostty/tmux/WezTerm/Zellij) or
-    /// full-screen takeover when no split support is detected.
-    Split,
+    /// Chat-only: no external process. Agent pane shows chat for socket IPC.
+    Chat,
+    /// Open in a tmux split pane.
+    Tmux,
+    /// Open in a Ghostty split pane (AppleScript).
+    Ghostty,
 }
 
 /// Built-in agent presets available in the agent picker.
 pub struct AgentPreset {
     pub name: &'static str,
-    /// Shell command template. `{pcap}` is replaced with the snapshot pcap path,
-    /// `{prompt}` is replaced with the analysis prompt.
+    /// Shell command template (used for display/documentation).
+    #[allow(dead_code)]
     pub command_template: &'static str,
     /// The binary name (for `which` resolution in split mode).
     pub binary: &'static str,
@@ -77,28 +78,28 @@ pub const AGENT_PRESETS: &[AgentPreset] = &[
         command_template: "copilot",
         binary: "copilot",
         description: "GitHub Copilot CLI",
-        spawn_mode: SpawnMode::Prompt,
+        spawn_mode: SpawnMode::Chat,
     },
     AgentPreset {
         name: "OpenCode",
         command_template: "opencode",
         binary: "opencode",
         description: "OpenCode coding agent",
-        spawn_mode: SpawnMode::Prompt,
+        spawn_mode: SpawnMode::Tmux,
     },
     AgentPreset {
         name: "Gemini",
         command_template: "gemini",
         binary: "gemini",
         description: "Google Gemini CLI",
-        spawn_mode: SpawnMode::Prompt,
+        spawn_mode: SpawnMode::Chat,
     },
     AgentPreset {
         name: "Amp",
         command_template: "amp",
         binary: "amp",
         description: "Amp coding agent",
-        spawn_mode: SpawnMode::Prompt,
+        spawn_mode: SpawnMode::Ghostty,
     },
 ];
 
@@ -126,6 +127,7 @@ pub fn resolve_binary(name: &str) -> Option<String> {
 /// Sets `HEXCAP_SOCKET` in the agent's environment so it can send commands back.
 /// Returns `Ok(true)` if a split was opened, `Ok(false)` if no supported
 /// terminal was detected (caller should fall back to full-screen).
+#[allow(dead_code)]
 pub fn open_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
     use std::env;
 
@@ -157,17 +159,7 @@ pub fn open_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
             ])
             .spawn()
     } else if crate::ui::helpers::is_ghostty() {
-        // Ghostty on macOS: AppleScript to split the focused terminal.
-        // Wrap in /bin/zsh -l -c so the agent gets the user's PATH.
-        let script = format!(
-            r#"tell application "Ghostty"
-    set cfg to new surface configuration
-    set command of cfg to "/bin/zsh -l -c 'export HEXCAP_SOCKET={socket_path}; exec {agent_bin}'"
-    set t to focused terminal of selected tab of front window
-    split t direction right with configuration cfg
-end tell"#
-        );
-        Command::new("osascript").args(["-e", &script]).spawn()
+        return open_ghostty_split(agent_bin, socket_path);
     } else {
         return Ok(false);
     };
@@ -175,6 +167,45 @@ end tell"#
     match result {
         Ok(_) => Ok(true),
         Err(e) => Err(anyhow::anyhow!("Failed to open split: {e}")),
+    }
+}
+
+/// Open an agent in a tmux split pane (right side, 60%).
+///
+/// Returns `Ok(true)` if tmux is available and the split was opened.
+pub fn open_tmux_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
+    if std::env::var("TMUX").is_err() {
+        return Ok(false);
+    }
+    let wrapped = format!("HEXCAP_SOCKET={socket_path} exec {agent_bin}");
+    match Command::new("tmux")
+        .args(["split-window", "-h", "-l", "60%", "sh", "-c", &wrapped])
+        .spawn()
+    {
+        Ok(_) => Ok(true),
+        Err(e) => Err(anyhow::anyhow!("tmux split failed: {e}")),
+    }
+}
+
+/// Open an agent in a Ghostty split pane (right side) via AppleScript.
+///
+/// Uses `/bin/zsh -l -c` so the agent gets the user's PATH.
+/// Returns `Ok(true)` if Ghostty is detected and the split was opened.
+pub fn open_ghostty_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
+    if !crate::ui::helpers::is_ghostty() {
+        return Ok(false);
+    }
+    let script = format!(
+        r#"tell application "Ghostty"
+    set cfg to new surface configuration
+    set command of cfg to "/bin/zsh -l -c 'export HEXCAP_SOCKET={socket_path}; exec {agent_bin}'"
+    set t to focused terminal of selected tab of front window
+    split t direction right with configuration cfg
+end tell"#
+    );
+    match Command::new("osascript").args(["-e", &script]).spawn() {
+        Ok(_) => Ok(true),
+        Err(e) => Err(anyhow::anyhow!("Ghostty split failed: {e}")),
     }
 }
 
@@ -553,6 +584,7 @@ impl AgentPipe {
     /// The agent runs inside a pseudo-terminal, receiving its initial prompt
     /// via the command string. The PTY keeps the agent alive and interactive.
     /// Output is read from the PTY master and displayed in the agent pane.
+    #[allow(dead_code)]
     pub fn spawn_pty(
         cmd: &str,
         output: AgentOutput,
@@ -561,15 +593,19 @@ impl AgentPipe {
     ) -> Result<Self> {
         // SAFETY: openpty allocates a new PTY pair. Both fds are valid after
         // a successful return. We zero-init the fd variables.
+        // Set an initial window size so TUI agents can render.
         let (master_fd, slave_fd) = unsafe {
             let mut master: libc::c_int = 0;
             let mut slave: libc::c_int = 0;
+            let mut ws: libc::winsize = std::mem::zeroed();
+            ws.ws_row = 24;
+            ws.ws_col = 80;
             let ret = libc::openpty(
                 &raw mut master,
                 &raw mut slave,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                std::ptr::null_mut(),
+                &raw mut ws,
             );
             if ret != 0 {
                 anyhow::bail!("openpty failed: {}", std::io::Error::last_os_error());
@@ -611,25 +647,17 @@ impl AgentPipe {
         // Use `exec` so the agent replaces the shell process.
         let wrapped_cmd = format!("exec {cmd}");
 
-        // Build env: set HEXCAP_SOCKET if provided, inherit HOME for the real user.
+        // Build env: set HEXCAP_SOCKET if provided, TERM for TUI apps,
+        // and HOME/USER/LOGNAME for the real user.
         let mut command = Command::new(&shell);
         command.args(["-l", "-c", &wrapped_cmd]);
+        command.env("TERM", "xterm-256color");
         if let Some(ref path) = socket_path {
             command.env("HEXCAP_SOCKET", path);
         }
         if let Some(ref user) = sudo_user {
-            // Resolve home directory for the real user.
-            if let Ok(home) = std::env::var("SUDO_USER") {
-                let _ = home; // already have user
-                // Set HOME from passwd entry or fall back to /Users/<user> on macOS.
-                let home_dir = sudo_user
-                    .as_ref()
-                    .map(|u| format!("/Users/{u}"))
-                    .unwrap_or_default();
-                if !home_dir.is_empty() {
-                    command.env("HOME", &home_dir);
-                }
-            }
+            // Set HOME to /Users/<user> on macOS for the real user.
+            command.env("HOME", format!("/Users/{user}"));
             command.env("USER", user);
             command.env("LOGNAME", user);
         }
@@ -665,7 +693,7 @@ impl AgentPipe {
         unsafe { libc::close(slave_fd) };
 
         // Start a reader thread on the master fd.
-        let reader_file = master_file
+        let mut reader_file = master_file
             .try_clone()
             .context("failed to clone PTY master for reader")?;
         let out = Arc::clone(&output);
@@ -673,24 +701,48 @@ impl AgentPipe {
         thread::Builder::new()
             .name("agent-pty-reader".into())
             .spawn(move || {
-                let mut reader = BufReader::new(reader_file);
-                let mut line = String::new();
+                use std::io::Read;
+                let mut buf = [0u8; 4096];
+                let mut line_buf = String::new();
                 loop {
-                    line.clear();
-                    match reader.read_line(&mut line) {
+                    match reader_file.read(&mut buf) {
                         Ok(0) | Err(_) => break,
-                        Ok(_) => {
-                            let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
-                            if let Some(cmd) = parse_command(trimmed) {
-                                if let Ok(mut q) = cmds.lock() {
-                                    q.push_back(cmd);
+                        Ok(n) => {
+                            let chunk = String::from_utf8_lossy(&buf[..n]);
+                            line_buf.push_str(&chunk);
+                            // Process complete lines; keep partial line in buffer.
+                            while let Some(pos) = line_buf.find('\n') {
+                                let line = line_buf[..pos].trim_end_matches('\r').to_string();
+                                line_buf.drain(..=pos);
+                                if let Some(cmd) = parse_command(&line) {
+                                    if let Ok(mut q) = cmds.lock() {
+                                        q.push_back(cmd);
+                                    }
+                                } else {
+                                    let stripped = strip_ansi(&line);
+                                    if !stripped.is_empty() {
+                                        let mut out_buf =
+                                            out.lock().expect("agent output mutex poisoned");
+                                        if out_buf.len() >= AGENT_OUTPUT_MAX {
+                                            out_buf.pop_front();
+                                        }
+                                        out_buf.push_back(stripped);
+                                    }
                                 }
-                            } else {
-                                let mut buf = out.lock().expect("agent output mutex poisoned");
-                                if buf.len() >= AGENT_OUTPUT_MAX {
-                                    buf.pop_front();
+                            }
+                            // If line_buf has content without newline, it's partial TUI output.
+                            // Flush it as a line if it's long enough (TUI cursor sequences).
+                            if line_buf.len() > 256 {
+                                let stripped = strip_ansi(&line_buf);
+                                if !stripped.is_empty() {
+                                    let mut out_buf =
+                                        out.lock().expect("agent output mutex poisoned");
+                                    if out_buf.len() >= AGENT_OUTPUT_MAX {
+                                        out_buf.pop_front();
+                                    }
+                                    out_buf.push_back(stripped);
                                 }
-                                buf.push_back(strip_ansi(trimmed));
+                                line_buf.clear();
                             }
                         }
                     }

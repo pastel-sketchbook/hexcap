@@ -236,9 +236,26 @@ pub struct App {
     pub pending_agent_spawn: Option<usize>,
     /// Socket path (when active) for display in status/footer.
     pub socket_path: Option<String>,
+    /// Chat messages displayed in the agent pane.
+    pub chat_messages: Vec<ChatMessage>,
+    /// Input buffer for the chat input bar.
+    pub chat_input: String,
+    /// Whether the chat input bar is focused (keypresses go to input).
+    pub chat_input_active: bool,
+    /// Pending outbound chat message; main loop consumes and sends via socket.
+    pub pending_chat_send: Option<String>,
 
     // -- Go to packet --
     pub goto_buf: String,
+}
+
+/// A single message in the agent chat pane.
+#[derive(Debug, Clone)]
+pub struct ChatMessage {
+    /// Who sent the message: "you", agent name, or "system".
+    pub sender: String,
+    /// Message text (may be multi-line).
+    pub text: String,
 }
 
 /// Aggregated info for a single bidirectional flow.
@@ -386,6 +403,10 @@ impl App {
             agent_commands: crate::agent::new_commands(),
             pending_agent_spawn: None,
             socket_path: None,
+            chat_messages: Vec::new(),
+            chat_input: String::new(),
+            chat_input_active: false,
+            pending_chat_send: None,
             goto_buf: String::new(),
         }
     }

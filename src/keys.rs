@@ -102,6 +102,35 @@ pub fn handle_key(app: &mut App, code: KeyCode) -> bool {
         return false;
     }
 
+    // Chat input bar — intercept keys when active.
+    if app.chat_input_active {
+        match code {
+            KeyCode::Esc => {
+                app.chat_input_active = false;
+                app.chat_input.clear();
+            }
+            KeyCode::Enter if !app.chat_input.is_empty() => {
+                let text = app.chat_input.clone();
+                app.chat_messages.push(crate::app::ChatMessage {
+                    sender: "you".into(),
+                    text: text.clone(),
+                });
+                app.pending_chat_send = Some(text);
+                app.chat_input.clear();
+                app.agent_scroll = 0; // auto-scroll to bottom
+            }
+            KeyCode::Enter => {}
+            KeyCode::Backspace => {
+                app.chat_input.pop();
+            }
+            KeyCode::Char(ch) => {
+                app.chat_input.push(ch);
+            }
+            _ => {}
+        }
+        return false;
+    }
+
     // Process picker overlay — intercept keys first.
     if app.process_picker.is_some() {
         match code {

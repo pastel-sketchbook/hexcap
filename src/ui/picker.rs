@@ -169,7 +169,7 @@ pub fn draw_agent_picker(frame: &mut Frame, app: &App, theme: &Theme) {
 
     let presets = crate::agent::AGENT_PRESETS;
     let area = frame.area();
-    let popup_width = 40_u16.min(area.width.saturating_sub(4));
+    let popup_width = 50_u16.min(area.width.saturating_sub(4));
     #[allow(clippy::cast_possible_truncation)]
     let popup_height = (presets.len() as u16 + 2).min(area.height.saturating_sub(4));
     let x = (area.width.saturating_sub(popup_width)) / 2;
@@ -181,10 +181,19 @@ pub fn draw_agent_picker(frame: &mut Frame, app: &App, theme: &Theme) {
     let items: Vec<ListItem> = presets
         .iter()
         .map(|preset| {
+            let mode_tag = match preset.spawn_mode {
+                crate::agent::SpawnMode::Chat => "chat",
+                crate::agent::SpawnMode::Tmux => "tmux",
+                crate::agent::SpawnMode::Ghostty => "ghostty",
+            };
             ListItem::new(Line::from(vec![
                 Span::styled(
                     format!(" {:<12}", preset.name),
                     Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("[{mode_tag}] "),
+                    Style::default().fg(theme.accent),
                 ),
                 Span::styled(preset.description, Style::default().fg(theme.muted)),
             ]))

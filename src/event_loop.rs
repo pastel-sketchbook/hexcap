@@ -268,6 +268,12 @@ fn execute_stamped_command(app: &mut App, server: &agent::SocketServer, sc: agen
             });
             let json = serde_json::to_string(&msg).unwrap_or_default();
             server.broadcast_except(sc.client_id, &json);
+            // Add to chat pane.
+            app.chat_messages.push(crate::app::ChatMessage {
+                sender: sender.clone(),
+                text: message.clone(),
+            });
+            app.agent_scroll = 0; // auto-scroll to bottom
             app.set_status(format!("[{sender}] {message}"));
         }
         AgentCommand::Ask {
@@ -336,7 +342,7 @@ pub fn run_loop(
     geoip_db: Option<&Arc<geoip::GeoDb>>,
     agent_pipe: &mut Option<agent::AgentPipe>,
     socket_server: &mut Option<agent::SocketServer>,
-    agent_output: &agent::AgentOutput,
+    _agent_output: &agent::AgentOutput,
     agent_commands: &agent::AgentCommands,
     agent_queries: &agent::AgentQueries,
     stamped_commands: &agent::StampedCommands,
@@ -373,127 +379,114 @@ pub fn run_loop(
             if let Some(preset_idx) = a.pending_agent_spawn.take()
                 && let Some(preset) = agent::AGENT_PRESETS.get(preset_idx)
             {
-                if preset.spawn_mode == agent::SpawnMode::Split {
-                    // Ensure a socket exists for bidirectional communication.
-                    let sock_path = if let Some(ref srv) = *socket_server {
-                        srv.path().to_string()
-                    } else {
-                        let path = agent::default_socket_path();
-                        match agent::SocketServer::bind(
-                            &path,
-                            agent_commands,
-                            agent_queries,
-                            stamped_commands,
-                            a.max_packets,
-                        ) {
-                            Ok(srv) => {
-                                *socket_server = Some(srv);
-                                a.socket_path = Some(path.clone());
-                                path
-                            }
-                            Err(e) => {
-                                a.set_status(format!("Socket failed: {e}"));
-                                continue;
-                            }
-                        }
-                    };
-
-                    // If agent is already running (socket exists), just
-                    // show a status — don't spawn another split.
-                    if a.agent_name.as_deref() == Some(preset.name) {
-                        a.set_status(format!(
-                            "{} already open (socket: {sock_path})",
-                            preset.name
-                        ));
-                    } else if let Some(agent_bin) = agent::resolve_binary(preset.binary) {
-                        match agent::open_split(&agent_bin, &sock_path) {
-                            Ok(true) => {
-                                a.agent_name = Some(preset.name.to_string());
-                                a.set_status(format!(
-                                    "Opened {} split (socket: {sock_path})",
-                                    preset.name
-                                ));
-                            }
-                            Ok(false) => {
-                                a.set_status(format!(
-                                    "{}: no split support (need Ghostty/tmux/WezTerm/Zellij)",
-                                    preset.name
-                                ));
-                            }
-                            Err(e) => {
-                                a.set_status(format!("{} split failed: {e}", preset.name));
-                            }
-                        }
-                    } else {
-                        a.set_status(format!(
-                            "{} not found — install {} first",
-                            preset.binary, preset.name
-                        ));
-                    }
+                // Ensure a socket exists for bidirectional communication.
+                let sock_path = if let Some(ref srv) = *socket_server {
+                    srv.path().to_string()
                 } else {
-                    // PTY mode: launch agent as interactive TUI in the agent pane.
-                    let cmd = preset.command_template;
-                    a.set_status(format!("Spawning {}...", preset.name));
-                    if let Ok(mut buf) = agent_output.lock() {
-                        buf.clear();
-                    }
-
-                    // Ensure a socket exists so the agent can connect back.
-                    let sock_path = if let Some(ref srv) = *socket_server {
-                        srv.path().to_string()
-                    } else {
-                        let path = agent::default_socket_path();
-                        match agent::SocketServer::bind(
-                            &path,
-                            agent_commands,
-                            agent_queries,
-                            stamped_commands,
-                            a.max_packets,
-                        ) {
-                            Ok(srv) => {
-                                *socket_server = Some(srv);
-                                a.socket_path = Some(path.clone());
-                                path
-                            }
-                            Err(e) => {
-                                a.set_status(format!("Socket failed: {e}"));
-                                String::new()
-                            }
-                        }
-                    };
-
-                    // Pass socket path as env var so the agent can discover it.
-                    let env_socket = if sock_path.is_empty() {
-                        None
-                    } else {
-                        Some(sock_path.clone())
-                    };
-
-                    match agent::AgentPipe::spawn_pty(
-                        cmd,
-                        Arc::clone(agent_output),
+                    let path = agent::default_socket_path();
+                    match agent::SocketServer::bind(
+                        &path,
                         agent_commands,
-                        env_socket.as_deref(),
+                        agent_queries,
+                        stamped_commands,
+                        a.max_packets,
                     ) {
-                        Ok(pipe) => {
-                            if !sock_path.is_empty() {
-                                let _ = crate::clipboard::copy_to_clipboard(&sock_path);
-                            }
-                            *agent_pipe = Some(pipe);
-                            a.show_agent_pane = true;
-                            a.agent_name = Some(preset.name.to_string());
-                            a.agent_scroll = 0;
-                            if sock_path.is_empty() {
-                                a.set_status(format!("Agent: {}", preset.name));
-                            } else {
-                                a.set_status(format!(
-                                    "Agent: {} (socket: {sock_path})",
-                                    preset.name
-                                ));
-                            }
+                        Ok(srv) => {
+                            *socket_server = Some(srv);
+                            a.socket_path = Some(path.clone());
+                            path
                         }
                         Err(e) => {
-                            a.set_status(format!("Agent failed: {e}"));
+                            a.set_status(format!("Socket failed: {e}"));
+                            continue;
+                        }
+                    }
+                };
+
+                // If agent is already running, just show status.
+                if a.agent_name.as_deref() == Some(preset.name) {
+                    a.set_status(format!(
+                        "{} already open (socket: {sock_path})",
+                        preset.name
+                    ));
+                } else {
+                    match preset.spawn_mode {
+                        agent::SpawnMode::Chat => {
+                            // Chat-only: no external process, just open the chat pane.
+                            a.agent_name = Some(preset.name.to_string());
+                            a.show_agent_pane = true;
+                            a.chat_input_active = true;
+                            a.chat_messages.clear();
+                            a.agent_scroll = 0;
+                            a.chat_messages.push(crate::app::ChatMessage {
+                                sender: "system".into(),
+                                text: format!(
+                                    "{} chat ready. Socket: {sock_path}",
+                                    preset.name
+                                ),
+                            });
+                            let _ = crate::clipboard::copy_to_clipboard(&sock_path);
+                            a.set_status(format!(
+                                "{} chat (socket: {sock_path})",
+                                preset.name
+                            ));
+                        }
+                        agent::SpawnMode::Tmux | agent::SpawnMode::Ghostty => {
+                            // Split mode: open agent in a terminal split pane.
+                            let Some(agent_bin) =
+                                agent::resolve_binary(preset.binary)
+                            else {
+                                a.set_status(format!(
+                                    "{} not found — install {} first",
+                                    preset.binary, preset.name
+                                ));
+                                continue;
+                            };
+                            let split_result =
+                                if preset.spawn_mode == agent::SpawnMode::Tmux {
+                                    agent::open_tmux_split(&agent_bin, &sock_path)
+                                } else {
+                                    agent::open_ghostty_split(&agent_bin, &sock_path)
+                                };
+                            let mode_name =
+                                if preset.spawn_mode == agent::SpawnMode::Tmux {
+                                    "tmux"
+                                } else {
+                                    "Ghostty"
+                                };
+                            match split_result {
+                                Ok(true) => {
+                                    a.agent_name = Some(preset.name.to_string());
+                                    a.show_agent_pane = true;
+                                    a.chat_input_active = true;
+                                    a.chat_messages.clear();
+                                    a.agent_scroll = 0;
+                                    a.chat_messages.push(crate::app::ChatMessage {
+                                        sender: "system".into(),
+                                        text: format!(
+                                            "{} opened in {} split. Socket: {sock_path}",
+                                            preset.name, mode_name
+                                        ),
+                                    });
+                                    let _ = crate::clipboard::copy_to_clipboard(&sock_path);
+                                    a.set_status(format!(
+                                        "{} ({} split, socket: {sock_path})",
+                                        preset.name, mode_name
+                                    ));
+                                }
+                                Ok(false) => {
+                                    a.set_status(format!(
+                                        "{}: {} not available",
+                                        preset.name, mode_name
+                                    ));
+                                }
+                                Err(e) => {
+                                    a.set_status(format!(
+                                        "{} {} split failed: {e}",
+                                        preset.name, mode_name
+                                    ));
+                                }
+                            }
                         }
                     }
                 }
@@ -512,6 +505,22 @@ pub fn run_loop(
                 let mut a = app.lock().expect("app mutex poisoned");
                 for cmd in cmds {
                     execute_agent_command(&mut a, cmd);
+                }
+            }
+        }
+
+        // Send pending chat message via socket.
+        {
+            let mut a = app.lock().expect("app mutex poisoned");
+            if let Some(msg) = a.pending_chat_send.take() {
+                let json = serde_json::json!({
+                    "type": "chat",
+                    "from": "hexcap",
+                    "message": msg,
+                });
+                let json_str = serde_json::to_string(&json).unwrap_or_default();
+                if let Some(ref srv) = *socket_server {
+                    srv.broadcast_except(0, &json_str);
                 }
             }
         }
