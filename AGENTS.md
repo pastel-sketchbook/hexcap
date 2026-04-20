@@ -42,6 +42,7 @@ packet annotations, follow speed cycling, and keyboard shortcut help.
 - `directories` — XDG config paths for theme persistence.
 - `libc` — reverse DNS resolution via `getnameinfo`.
 - `maxminddb` — GeoIP country lookup from MaxMind MMDB files.
+- `serde_json` — JSON serialization for headless/agent-friendly output.
 
 ## Architecture
 
@@ -60,6 +61,9 @@ src/
   dns.rs        — reverse DNS resolution via libc getnameinfo, batch resolver,
                   display helper
   export.rs     — write_pcap + read_pcap (classic libpcap format)
+  headless.rs   — JSON output for subcommands and --json flag; serializes
+                  packets, flows, stats, streams, and single-packet decode
+                  as JSON arrays or JSONL for agent/pipeline consumption
   geoip.rs      — MaxMind MMDB lookup, country code [XX] suffix for IPs
   hex.rs        — hexyl-style hex dump renderer, hex_dump_plain, hex_string
   packet.rs     — packet parsing (IPv4/IPv6), DecodedField, FlowKey,
@@ -127,6 +131,7 @@ and their light variants.
 - **Follow speed cycling**: `F` cycles follow-mode speed — off / 1 / 5 / 10 / 25 packet intervals.
 - **Bookmark persistence**: Bookmarks saved to `.pcap.bookmarks` sidecar files alongside pcap exports.
 - **Multi-interface capture**: `-i en0,lo0` comma-separated interface list; spawns one capture thread per interface.
+- **Headless/JSON mode**: CLI subcommands (`read`, `capture`, `flows`, `stats`, `stream`, `decode`) bypass the TUI and emit JSON (array or JSONL) to stdout for agent/pipeline consumption. The `--json` flag on the root CLI provides the same headless output for `--read` (JSON array) and live capture (JSONL, bounded by `--max-packets`).
 
 ## Conventions
 

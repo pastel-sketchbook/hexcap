@@ -181,7 +181,7 @@ pub struct App {
 }
 
 /// Aggregated info for a single bidirectional flow.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct FlowInfo {
     pub key: FlowKey,
     pub protocol: Protocol,

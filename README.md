@@ -42,6 +42,7 @@ terminal.
 - **Multi-interface capture** — `-i en0,lo0` comma-separated; one capture thread per interface
 - **Help overlay** — `?` shows all keybindings in a popup
 - **Vim keybindings** — j/k, g/G, d/u, Enter, Esc, /
+- **Headless/JSON mode** — CLI subcommands and `--json` flag for agent/pipeline consumption
 
 ## Install
 
@@ -82,6 +83,38 @@ sudo hexcap -i en0,lo0
 
 # Enable GeoIP country lookup
 sudo hexcap --geoip /path/to/GeoLite2-Country.mmdb
+```
+
+## Agent / Pipeline Mode
+
+hexcap provides CLI subcommands and a `--json` flag for headless, agent-friendly
+JSON output — no TUI required.
+
+```sh
+# Decode a pcap file to JSON array
+hexcap read capture.pcap
+
+# Decode with display filter and limit
+hexcap read capture.pcap -f "tcp port:443" -n 100
+
+# Live capture as JSONL (one JSON object per line)
+sudo hexcap capture -i en0 -f "tcp port 80" -c 50
+
+# Flow summary
+hexcap flows capture.pcap
+
+# Protocol and talker statistics
+hexcap stats capture.pcap
+
+# TCP stream payload for a specific flow
+hexcap stream capture.pcap --flow 10.0.0.1:4321-93.184.216.34:443
+
+# Decode a single packet by index
+hexcap decode capture.pcap --id 42
+
+# --json flag on root CLI (same output, alternate syntax)
+hexcap --json --read capture.pcap
+sudo hexcap --json -i en0 --max-packets 200
 ```
 
 ## Keybindings
@@ -178,6 +211,7 @@ src/
   dns.rs        — reverse DNS resolution (libc getnameinfo)
   export.rs     — pcap file writer and reader
   geoip.rs      — GeoIP country lookup (MaxMind MMDB)
+  headless.rs   — JSON output for subcommands and --json flag
   hex.rs        — hexyl-style hex dump renderer
   packet.rs     — packet parsing (IPv4/IPv6), protocol decode, TLS decode
   process.rs    — process-to-socket resolution (lsof)

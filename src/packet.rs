@@ -2,8 +2,10 @@ use std::collections::HashSet;
 use std::fmt;
 use std::time::SystemTime;
 
+use serde::Serialize;
+
 /// A bidirectional flow key — normalizes direction so A<>B == B<>A.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct FlowKey(pub String, pub String);
 
 impl FlowKey {
@@ -18,7 +20,13 @@ impl FlowKey {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+impl fmt::Display for FlowKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}-{}", self.0, self.1)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum Protocol {
     Tcp,
     Udp,
@@ -41,14 +49,16 @@ impl fmt::Display for Protocol {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CapturedPacket {
     pub id: u64,
+    #[serde(serialize_with = "serialize_system_time")]
     pub timestamp: SystemTime,
     pub protocol: Protocol,
     pub src: String,
     pub dst: String,
     pub length: usize,
+    #[serde(serialize_with = "serialize_bytes_as_hex")]
     pub data: Vec<u8>,
     pub decoded: Vec<DecodedField>,
     /// Raw TCP flags byte (SYN=0x02, RST=0x04, FIN=0x01, etc.). Zero for non-TCP.
@@ -56,7 +66,7 @@ pub struct CapturedPacket {
 }
 
 /// A decoded header field for display in the detail view.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DecodedField {
     pub label: String,
     pub value: String,
@@ -607,4 +617,29 @@ fn extract_sni(data: &[u8]) -> Option<String> {
     }
 
     None
+}
+
+// -- Serde helpers -----------------------------------------------------------
+
+/// Serialize `SystemTime` as ISO 8601 UTC string.
+fn serialize_system_time<S: serde::Serializer>(
+    ts: &SystemTime,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let dur = ts
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = dur.as_secs();
+    let millis = dur.subsec_millis();
+    // Format as seconds.millis (compact epoch representation).
+    serializer.serialize_str(&format!("{secs}.{millis:03}"))
+}
+
+/// Serialize `Vec<u8>` as a hex string (e.g. "00 11 22 ff").
+fn serialize_bytes_as_hex<S: serde::Serializer>(
+    data: &[u8],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let hex: Vec<String> = data.iter().map(|b| format!("{b:02x}")).collect();
+    serializer.serialize_str(&hex.join(" "))
 }

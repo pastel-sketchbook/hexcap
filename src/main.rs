@@ -5,6 +5,7 @@ mod config;
 mod dns;
 mod export;
 mod geoip;
+mod headless;
 mod hex;
 mod packet;
 mod process;
@@ -60,6 +61,69 @@ struct Cli {
     /// Path to `GeoLite2-City.mmdb` or `GeoLite2-Country.mmdb` for `GeoIP` lookups
     #[arg(long)]
     geoip: Option<String>,
+
+    /// Output JSON instead of TUI (JSONL for live capture, JSON array for --read)
+    #[arg(long)]
+    json: bool,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Read and decode a pcap file to JSON
+    Read {
+        /// Path to the pcap file
+        file: String,
+        /// Display filter expression (e.g. "tcp port:443 !arp")
+        #[arg(short, long)]
+        filter: Option<String>,
+        /// Maximum number of packets to output (0 = all)
+        #[arg(short = 'n', long, default_value_t = 0)]
+        limit: usize,
+    },
+    /// Capture packets headless and output as JSONL
+    Capture {
+        /// Network interface (comma-separated for multiple)
+        #[arg(short, long)]
+        interface: Option<String>,
+        /// BPF filter expression
+        #[arg(short, long)]
+        filter: Option<String>,
+        /// Number of packets to capture (0 = unlimited)
+        #[arg(short = 'c', long, default_value_t = 100)]
+        count: usize,
+        /// Display filter expression
+        #[arg(short, long)]
+        display_filter: Option<String>,
+    },
+    /// Extract connection flows from a pcap file
+    Flows {
+        /// Path to the pcap file
+        file: String,
+    },
+    /// Show capture statistics from a pcap file
+    Stats {
+        /// Path to the pcap file
+        file: String,
+    },
+    /// Follow a TCP stream from a pcap file
+    Stream {
+        /// Path to the pcap file
+        file: String,
+        /// Flow to follow (e.g. "10.0.0.1:443-10.0.0.2:52100")
+        #[arg(long)]
+        flow: Option<String>,
+    },
+    /// Decode a single packet from a pcap file
+    Decode {
+        /// Path to the pcap file
+        file: String,
+        /// Packet ID (1-based)
+        #[arg(long)]
+        id: u64,
+    },
 }
 
 #[allow(clippy::too_many_lines)]
@@ -73,6 +137,47 @@ fn main() -> Result<()> {
         )
         .with_writer(io::stderr)
         .init();
+
+    // ── Subcommand dispatch (headless, JSON output) ────────────────────
+    if let Some(cmd) = cli.command {
+        return match cmd {
+            Command::Read {
+                file,
+                filter,
+                limit,
+            } => headless::cmd_read(&file, filter.as_deref(), limit),
+            Command::Capture {
+                interface,
+                filter,
+                count,
+                display_filter,
+            } => headless::cmd_capture(
+                interface.as_deref(),
+                filter.as_deref(),
+                count,
+                display_filter.as_deref(),
+            ),
+            Command::Flows { file } => headless::cmd_flows(&file),
+            Command::Stats { file } => headless::cmd_stats(&file),
+            Command::Stream { file, flow } => headless::cmd_stream(&file, flow.as_deref()),
+            Command::Decode { file, id } => headless::cmd_decode(&file, id),
+        };
+    }
+
+    // ── --json flag on root CLI ────────────────────────────────────────
+    if cli.json {
+        return if let Some(ref path) = cli.read {
+            headless::cmd_json_read(path)
+        } else {
+            headless::cmd_json_live(
+                cli.interface.as_deref(),
+                cli.filter.as_deref(),
+                cli.max_packets,
+            )
+        };
+    }
+
+    // ── TUI mode (default) ────────────────────────────────────────────
 
     // Resolve --process flag to a port-based filter.
     let process_filter = if let Some(ref query) = cli.process {

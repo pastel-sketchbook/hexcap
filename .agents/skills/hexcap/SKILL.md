@@ -70,6 +70,7 @@ sudo hexcap --max-packets 5000
 | `--write` | `-w` | none | Write packets to pcap file |
 | `--max-packets` | `-m` | 10000 | Maximum packets in ring buffer |
 | `--geoip` | | none | Path to MaxMind GeoLite2-Country MMDB |
+| `--json` | | false | Output JSON instead of launching TUI |
 
 ## Keybindings
 
@@ -222,24 +223,60 @@ Zoegi, FFE Dark, Postrboard, and their light variants. Press `t` to cycle.
 Auto-detects Ghostty terminal theme on startup. Persisted to
 `~/.config/hexcap/preferences.toml`.
 
-## Agent Usage Notes
+## Agent Usage — Headless JSON Mode
 
-hexcap is an **interactive TUI application** — agents cannot drive it directly.
-For agent-assisted packet analysis workflows:
+hexcap subcommands bypass the TUI and emit JSON to stdout. Agents should use
+these directly instead of tcpdump/tshark workarounds.
 
-1. **Capture**: Use `tcpdump` or `tshark` to capture non-interactively:
-   ```bash
-   sudo tcpdump -i en0 -w /tmp/capture.pcap -c 1000 "tcp port 443"
-   ```
-2. **Hand off**: Tell the user to inspect with hexcap:
-   ```bash
-   hexcap --read /tmp/capture.pcap
-   ```
-3. **Programmatic analysis**: For automated packet inspection, use the source
-   modules directly — `src/packet.rs` (parsing), `src/export.rs` (pcap I/O),
-   `src/hex.rs` (hex dump rendering) contain reusable logic.
-4. **Read pcap files**: The `export::read_pcap()` function returns
-   `Vec<(SystemTime, Vec<u8>)>` and `packet::parse_packet()` decodes each frame.
+### Subcommands
+
+| Command | Output | Description |
+|---------|--------|-------------|
+| `hexcap read <file> [-f filter] [-n limit]` | JSON array | Decode pcap to JSON |
+| `sudo hexcap capture [-i iface] [-f bpf] [-c count] [-d display_filter]` | JSONL | Live capture, one JSON object per line |
+| `hexcap flows <file>` | JSON array | Flow summary (proto, endpoints, packets, bytes) |
+| `hexcap stats <file>` | JSON object | Protocol distribution, top talkers, top conversations |
+| `hexcap stream <file> [--flow src-dst]` | JSON object | TCP stream payload for a flow |
+| `hexcap decode <file> --id N` | JSON object | Single packet with full decode |
+
+The `--json` flag on the root CLI provides equivalent output:
+- `hexcap --json --read file.pcap` → JSON array (same as `hexcap read`)
+- `sudo hexcap --json -i en0` → JSONL (same as `hexcap capture`, bounded by `--max-packets`)
+
+### Agent Workflow Examples
+
+**Capture and analyze HTTP traffic:**
+```bash
+# Capture 100 packets of HTTP traffic as JSONL
+sudo hexcap capture -i en0 -f "tcp port 80" -c 100 > /tmp/http.jsonl
+
+# Pipe to jq for filtering
+cat /tmp/http.jsonl | jq 'select(.protocol == "TCP" and .dst_port == 80)'
+```
+
+**Inspect a pcap file programmatically:**
+```bash
+# Read pcap as JSON, extract source IPs
+hexcap read capture.pcap | jq '.[].src_ip' | sort -u
+
+# Get flow summary
+hexcap flows capture.pcap | jq '.[] | select(.protocol == "TCP")'
+
+# Get capture statistics
+hexcap stats capture.pcap | jq '.top_talkers'
+```
+
+**Decode a specific packet:**
+```bash
+# Full decode of packet #42
+hexcap decode capture.pcap --id 42 | jq '.decoded_fields'
+```
+
+**Follow a TCP stream:**
+```bash
+# Extract TCP stream payload
+hexcap stream capture.pcap --flow 10.0.0.1:4321-93.184.216.34:443
+```
 
 ## Architecture Notes
 
