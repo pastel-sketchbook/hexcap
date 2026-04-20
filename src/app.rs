@@ -396,7 +396,7 @@ impl App {
             show_agent_pane: false,
             agent_output: crate::agent::new_output(),
             agent_scroll: 0,
-            agent_pane_ratio: 65,
+            agent_pane_ratio: 75,
             agent_pane_dragging: false,
             agent_picker: None,
             agent_name: None,
