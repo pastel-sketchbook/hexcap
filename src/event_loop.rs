@@ -161,6 +161,7 @@ pub fn run_loop(
                         match agent::SocketServer::bind(&path, agent_commands) {
                             Ok(srv) => {
                                 *socket_server = Some(srv);
+                                a.socket_path = Some(path.clone());
                                 path
                             }
                             Err(e) => {
@@ -246,6 +247,34 @@ pub fn run_loop(
                         }
                     } else {
                         a.set_status("Failed to snapshot packets for agent".into());
+                    }
+                }
+            }
+        }
+
+        // Check for on-demand socket creation (X key).
+        {
+            let mut a = app.lock().expect("app mutex poisoned");
+            if a.pending_socket_create {
+                a.pending_socket_create = false;
+                if let Some(ref srv) = *socket_server {
+                    let path = srv.path().to_string();
+                    a.socket_path = Some(path.clone());
+                    a.set_status(format!("Socket: {path}"));
+                } else {
+                    let path = std::env::temp_dir()
+                        .join(format!("hexcap_{}.sock", std::process::id()))
+                        .to_string_lossy()
+                        .to_string();
+                    match agent::SocketServer::bind(&path, agent_commands) {
+                        Ok(srv) => {
+                            *socket_server = Some(srv);
+                            a.socket_path = Some(path.clone());
+                            a.set_status(format!("Socket: {path}"));
+                        }
+                        Err(e) => {
+                            a.set_status(format!("Socket failed: {e}"));
+                        }
                     }
                 }
             }

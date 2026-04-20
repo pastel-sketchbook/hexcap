@@ -114,6 +114,7 @@ sudo hexcap --max-packets 5000
 | `R` | Toggle time reference on selected packet (t=0 point) |
 | `:` | Go to packet by number |
 | `A` | Agent picker / toggle pane |
+| `X` | Create socket / show path |
 | `J` / `K` | Scroll agent pane down / up |
 | `?` | Keyboard shortcut help |
 | `Tab` | Select column to resize |
@@ -397,7 +398,7 @@ hexcap read capture.pcap --dns --geoip country.mmdb --compact
 - Ring buffer: `VecDeque` bounded by `--max-packets`
 - Agent pipe: spawns child via `sh -c`, JSONL to stdin, stdout read into ring buffer, displayed in bottom split pane (markdown-rendered via `tui-markdown`)
 - Agent pane: resizable by dragging the border chrome (mouse drag, clamped 20%-80%); mouse scroll routes to agent pane when scrolling in its area
-- Agent socket: Unix domain socket, bidirectional — broadcasts JSONL to clients AND reads `@@HEXCAP:` commands from clients; auto-created for split agents; cleaned up on drop
+- Agent socket: Unix domain socket, bidirectional — broadcasts JSONL to clients AND reads `@@HEXCAP:` commands from clients; auto-created for split agents; `X` key creates on demand / shows path; cleaned up on drop
 - Agent picker: `A` key opens picker listing Copilot, OpenCode, Gemini, Amp; Copilot/OpenCode/Gemini spawn in prompt mode (snapshot pcap, non-interactive CLI); Amp spawns in terminal split mode (Ghostty/tmux/WezTerm/Zellij)
 - Agent split mode: opens agent TUI in a right-side terminal split pane; Ghostty (AppleScript), tmux, WezTerm, Zellij supported; `HEXCAP_SOCKET` env var set so agent can send commands back; won't spawn duplicate if agent already open
 - Ghostty detection: `GHOSTTY_RESOURCES_DIR` → `TERM_PROGRAM` → `pgrep -xi ghostty` (works under sudo which strips env vars)

@@ -309,6 +309,13 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('T') => app.cycle_time_format(),
         KeyCode::Char('R') => app.toggle_time_reference(),
         KeyCode::Char(':') => app.start_goto(),
+        KeyCode::Char('X') => {
+            if let Some(ref path) = app.socket_path {
+                app.set_status(format!("Socket: {path}"));
+            } else {
+                app.pending_socket_create = true;
+            }
+        }
         KeyCode::Char('A') => {
             if app.agent_name.is_some() {
                 app.show_agent_pane = !app.show_agent_pane;

@@ -198,6 +198,7 @@ sudo hexcap --json -i en0 --max-packets 200
 | `R`            | Toggle time reference on packet |
 | `:`            | Go to packet by number       |
 | `A`            | Agent picker / toggle pane    |
+| `X`            | Create socket / show path    |
 | `J` / `K`     | Scroll agent pane down/up    |
 | `?`            | Show keybindings help        |
 | `t`            | Cycle theme                  |

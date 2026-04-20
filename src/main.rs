@@ -263,6 +263,7 @@ fn main() -> Result<()> {
             Ok(srv) => {
                 if let Ok(mut a) = app.lock() {
                     a.set_status(format!("Agent socket: {path}"));
+                    a.socket_path = Some(path.clone());
                 }
                 Some(srv)
             }
