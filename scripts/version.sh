@@ -24,7 +24,7 @@ current_version() {
 # matching only the first occurrence (the [package] version line).
 update_cargo_toml() {
   local file="$1" old="$2" new="$3"
-  sed -i '' "s/^version = \"$old\"/version = \"$new\"/" "$file"
+  sed -i "s/^version = \"$old\"/version = \"$new\"/" "$file"
 }
 
 sync_all() {
@@ -58,7 +58,7 @@ cmd_bump() {
 cmd_sync() {
   local ver
   ver="$(current_version)"
-  sed -i '' "s/^version = \"[^\"]*\"/version = \"$ver\"/" "$ROOT/Cargo.toml"
+  sed -i "s/^version = \"[^\"]*\"/version = \"$ver\"/" "$ROOT/Cargo.toml"
   echo "Cargo.toml synced to $ver"
 }
 

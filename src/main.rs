@@ -1,5 +1,6 @@
 mod app;
 mod capture;
+mod clipboard;
 mod config;
 mod export;
 mod hex;
@@ -110,19 +111,13 @@ fn run_loop(
     let mut refresh_counter: u32 = 0;
     loop {
         {
-            // Mutex poisoning means the capture thread panicked — unrecoverable.
             let mut app = app.lock().expect("app mutex poisoned");
-
-            // Clear expired status messages.
             app.tick_status();
-
-            // Refresh process ports every ~5s (100 × 50ms).
             refresh_counter += 1;
             if refresh_counter >= 100 {
                 refresh_counter = 0;
                 app.refresh_process_ports();
             }
-
             terminal.draw(|f| ui::render(f, &app))?;
         }
 
@@ -132,74 +127,115 @@ fn run_loop(
             if key.kind != KeyEventKind::Press {
                 continue;
             }
-
-            // Mutex poisoning means the capture thread panicked — unrecoverable.
             let mut app = app.lock().expect("app mutex poisoned");
-
-            // Process picker overlay — intercept keys first.
-            if app.process_picker.is_some() {
-                match key.code {
-                    KeyCode::Esc => app.close_process_picker(),
-                    KeyCode::Enter => app.picker_select(),
-                    KeyCode::Down | KeyCode::Char('j') => app.picker_next(),
-                    KeyCode::Up | KeyCode::Char('k') => app.picker_prev(),
-                    KeyCode::Backspace => app.picker_pop(),
-                    KeyCode::Char(ch) => app.picker_push(ch),
-                    _ => {}
-                }
-                continue;
-            }
-
-            // Search input mode — intercept keys first.
-            if app.input_mode == InputMode::Search {
-                match key.code {
-                    KeyCode::Esc => app.cancel_search(),
-                    KeyCode::Enter => app.confirm_search(),
-                    KeyCode::Backspace => app.search_pop(),
-                    KeyCode::Char(ch) => app.search_push(ch),
-                    _ => {}
-                }
-                continue;
-            }
-
-            match app.view {
-                View::List => match key.code {
-                    KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Char('j') | KeyCode::Down => app.next(),
-                    KeyCode::Char('k') | KeyCode::Up => app.previous(),
-                    KeyCode::Char('G') | KeyCode::End => app.last(),
-                    KeyCode::Char('g') | KeyCode::Home => app.first(),
-                    KeyCode::Enter => app.open_detail(),
-                    KeyCode::Char(' ') => app.toggle_pause(),
-                    KeyCode::Char('c') => app.clear(),
-                    KeyCode::Char('t') => app.next_theme(),
-                    KeyCode::Char('/') => app.start_search(),
-                    KeyCode::Char('f') => app.next_proto_filter(),
-                    KeyCode::Char('F') => app.toggle_follow(),
-                    KeyCode::Char('p') => {
-                        if let Ok(procs) = process::list_network_processes() {
-                            app.open_process_picker(procs);
-                        }
-                    }
-                    KeyCode::Char('P') => app.clear_process_filter(),
-                    KeyCode::Char('w') => {
-                        let msg = app.export_packets();
-                        app.set_status(msg);
-                    }
-                    _ => {}
-                },
-                View::Detail => match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => app.close_detail(),
-                    KeyCode::Char('j') | KeyCode::Down => app.scroll_down(),
-                    KeyCode::Char('k') | KeyCode::Up => app.scroll_up(),
-                    KeyCode::Char('t') => app.next_theme(),
-                    KeyCode::Char('w') => {
-                        let msg = app.export_packets();
-                        app.set_status(msg);
-                    }
-                    _ => {}
-                },
+            if handle_key(&mut app, key.code) {
+                return Ok(());
             }
         }
+    }
+}
+
+/// Returns `true` if the app should quit.
+fn handle_key(app: &mut App, code: KeyCode) -> bool {
+    // Process picker overlay — intercept keys first.
+    if app.process_picker.is_some() {
+        match code {
+            KeyCode::Esc => app.close_process_picker(),
+            KeyCode::Enter => app.picker_select(),
+            KeyCode::Down | KeyCode::Char('j') => app.picker_next(),
+            KeyCode::Up | KeyCode::Char('k') => app.picker_prev(),
+            KeyCode::Backspace => app.picker_pop(),
+            KeyCode::Char(ch) => app.picker_push(ch),
+            _ => {}
+        }
+        return false;
+    }
+
+    // Search input mode.
+    if app.input_mode == InputMode::Search {
+        match code {
+            KeyCode::Esc => app.cancel_search(),
+            KeyCode::Enter => app.confirm_search(),
+            KeyCode::Backspace => app.search_pop(),
+            KeyCode::Char(ch) => app.search_push(ch),
+            _ => {}
+        }
+        return false;
+    }
+
+    match app.view {
+        View::List => handle_list_key(app, code),
+        View::Detail => {
+            handle_detail_key(app, code);
+            false
+        }
+    }
+}
+
+/// Returns `true` if the app should quit.
+fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Char('q') => return true,
+        KeyCode::Char('j') | KeyCode::Down => app.next(),
+        KeyCode::Char('k') | KeyCode::Up => app.previous(),
+        KeyCode::Char('G') | KeyCode::End => app.last(),
+        KeyCode::Char('g') | KeyCode::Home => app.first(),
+        KeyCode::Enter => app.open_detail(),
+        KeyCode::Char(' ') => app.toggle_pause(),
+        KeyCode::Char('c') => app.clear(),
+        KeyCode::Char('t') => app.next_theme(),
+        KeyCode::Char('/') => app.start_search(),
+        KeyCode::Char('f') => app.next_proto_filter(),
+        KeyCode::Char('F') => app.toggle_follow(),
+        KeyCode::Char('p') => {
+            if let Ok(procs) = process::list_network_processes() {
+                app.open_process_picker(procs);
+            }
+        }
+        KeyCode::Char('P') => app.clear_process_filter(),
+        KeyCode::Char('w') => {
+            let msg = app.export_packets();
+            app.set_status(msg);
+        }
+        _ => {}
+    }
+    false
+}
+
+fn handle_detail_key(app: &mut App, code: KeyCode) {
+    match code {
+        KeyCode::Char('q') | KeyCode::Esc => app.close_detail(),
+        KeyCode::Char('j') | KeyCode::Down => app.scroll_down(),
+        KeyCode::Char('k') | KeyCode::Up => app.scroll_up(),
+        KeyCode::Char('t') => app.next_theme(),
+        KeyCode::Char('w') => {
+            let msg = app.export_packets();
+            app.set_status(msg);
+        }
+        KeyCode::Char('y') => {
+            let msg = if let Some(pkt) = app.selected_packet() {
+                let dump = hex::hex_dump_plain(&pkt.data);
+                match clipboard::copy_to_clipboard(&dump) {
+                    Ok(()) => "Hex dump copied".into(),
+                    Err(e) => format!("Copy failed: {e}"),
+                }
+            } else {
+                "No packet selected".into()
+            };
+            app.set_status(msg);
+        }
+        KeyCode::Char('Y') => {
+            let msg = if let Some(pkt) = app.selected_packet() {
+                let s = hex::hex_string(&pkt.data);
+                match clipboard::copy_to_clipboard(&s) {
+                    Ok(()) => "Raw hex copied".into(),
+                    Err(e) => format!("Copy failed: {e}"),
+                }
+            } else {
+                "No packet selected".into()
+            };
+            app.set_status(msg);
+        }
+        _ => {}
     }
 }

@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use ratatui::prelude::*;
 use ratatui::text::{Line, Span};
 
@@ -74,4 +76,53 @@ fn byte_color(b: u8, theme: &Theme) -> Color {
         0xFF => theme.hex_high,
         _ => theme.hex_other,
     }
+}
+
+/// Format raw bytes as a plain-text hex dump (no ANSI colors).
+///
+/// Each line: `OFFSET │ HH HH ... │ ASCII`
+pub fn hex_dump_plain(data: &[u8]) -> String {
+    let mut out = String::new();
+    for (i, chunk) in data.chunks(BYTES_PER_LINE).enumerate() {
+        let offset = i * BYTES_PER_LINE;
+        let _ = write!(out, "{offset:08x} │ ");
+
+        for (j, byte) in chunk.iter().enumerate() {
+            if j == 8 {
+                out.push(' ');
+            }
+            let _ = write!(out, "{byte:02x} ");
+        }
+
+        // Pad short lines.
+        let missing = BYTES_PER_LINE - chunk.len();
+        for m in 0..missing {
+            if chunk.len() + m == 8 {
+                out.push(' ');
+            }
+            out.push_str("   ");
+        }
+
+        out.push_str("│ ");
+        for byte in chunk {
+            let ch = if byte.is_ascii_graphic() || *byte == b' ' {
+                *byte as char
+            } else {
+                '·'
+            };
+            out.push(ch);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Format raw bytes as a compact hex string (e.g. "4a6f686e").
+pub fn hex_string(data: &[u8]) -> String {
+    use std::fmt::Write as _;
+    data.iter()
+        .fold(String::with_capacity(data.len() * 2), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        })
 }
