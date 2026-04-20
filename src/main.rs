@@ -103,6 +103,23 @@ fn main() -> Result<()> {
         }
         a.paused = true; // No live capture, start paused.
         a.interface_name.clone_from(path);
+        // Load bookmarks sidecar if present.
+        let pcap_path = std::path::Path::new(path);
+        let bm_path = export::bookmark_path(pcap_path);
+        if bm_path.exists() {
+            match export::load_bookmarks(&bm_path) {
+                Ok(bm) => {
+                    let count = bm.len();
+                    a.bookmarks = bm;
+                    if count > 0 {
+                        a.set_status(format!("Loaded {count} bookmarks"));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to load bookmarks: {e}");
+                }
+            }
+        }
         drop(a);
         None
     } else {

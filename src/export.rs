@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -111,6 +112,46 @@ pub fn read_pcap(path: &Path) -> Result<Vec<(SystemTime, Vec<u8>)>> {
     }
 
     Ok(packets)
+}
+
+/// Bookmark sidecar path: same as pcap path but with `.bookmarks` extension.
+#[must_use]
+pub fn bookmark_path(pcap_path: &Path) -> std::path::PathBuf {
+    pcap_path.with_extension("pcap.bookmarks")
+}
+
+/// Save bookmark IDs to a sidecar file (one ID per line).
+pub fn save_bookmarks(path: &Path, bookmarks: &std::collections::HashSet<u64>) -> Result<()> {
+    if bookmarks.is_empty() {
+        // Remove stale sidecar if no bookmarks.
+        let _ = std::fs::remove_file(path);
+        return Ok(());
+    }
+    let mut ids: Vec<u64> = bookmarks.iter().copied().collect();
+    ids.sort_unstable();
+    let mut content = String::new();
+    for id in &ids {
+        let _ = writeln!(content, "{id}");
+    }
+    std::fs::write(path, content)
+        .with_context(|| format!("failed to write bookmarks to {}", path.display()))?;
+    Ok(())
+}
+
+/// Load bookmark IDs from a sidecar file.
+pub fn load_bookmarks(path: &Path) -> Result<std::collections::HashSet<u64>> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read bookmarks from {}", path.display()))?;
+    let mut set = std::collections::HashSet::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty()
+            && let Ok(id) = trimmed.parse::<u64>()
+        {
+            set.insert(id);
+        }
+    }
+    Ok(set)
 }
 
 #[cfg(test)]

@@ -929,7 +929,19 @@ impl App {
             .filter_map(|&i| self.packets.get(i))
             .collect();
         match crate::export::write_pcap(path.as_path(), &packets) {
-            Ok(n) => format!("Exported {n} packets to {}", path.display()),
+            Ok(n) => {
+                // Save bookmarks sidecar if any bookmarks exist.
+                let bm_path = crate::export::bookmark_path(&path);
+                if let Err(e) = crate::export::save_bookmarks(&bm_path, &self.bookmarks) {
+                    return format!("Exported {n} packets but bookmark save failed: {e}");
+                }
+                let bm_note = if self.bookmarks.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({} bookmarks)", self.bookmarks.len())
+                };
+                format!("Exported {n} packets{bm_note} to {}", path.display())
+            }
             Err(e) => format!("Export failed: {e}"),
         }
     }
