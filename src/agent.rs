@@ -441,6 +441,15 @@ impl SocketServer {
 
         let listener =
             UnixListener::bind(path).with_context(|| format!("failed to bind socket: {path}"))?;
+        // Allow non-root agents to connect when hexcap runs under sudo.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777));
+            // chown to the real (pre-sudo) user so agents running as that user
+            // can connect without permission errors.
+            chown_to_real_user(path);
+        }
         listener.set_nonblocking(true)?;
 
         let clients: Arc<Mutex<Vec<std::os::unix::net::UnixStream>>> =
@@ -518,6 +527,30 @@ impl SocketServer {
 impl Drop for SocketServer {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Change ownership of `path` to the real (pre-sudo) user.
+///
+/// When hexcap runs under `sudo`, files are created as root. This reads
+/// `SUDO_UID` / `SUDO_GID` and calls `libc::chown` so that agents running
+/// as the original user can connect to the socket.
+#[cfg(unix)]
+fn chown_to_real_user(path: &str) {
+    let uid = std::env::var("SUDO_UID")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok());
+    let gid = std::env::var("SUDO_GID")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok());
+    if let Some(uid) = uid {
+        let gid = gid.unwrap_or(uid);
+        let c_path = std::ffi::CString::new(path).unwrap_or_default();
+        // SAFETY: `c_path` is a valid NUL-terminated string and `chown` is a
+        // standard POSIX call that only modifies file metadata.
+        unsafe {
+            libc::chown(c_path.as_ptr(), uid, gid);
+        }
     }
 }
 

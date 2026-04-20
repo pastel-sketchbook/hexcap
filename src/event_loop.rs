@@ -162,6 +162,7 @@ pub fn run_loop(
                             Ok(srv) => {
                                 *socket_server = Some(srv);
                                 a.socket_path = Some(path.clone());
+                                agent_last_sent = 0;
                                 path
                             }
                             Err(e) => {
@@ -260,7 +261,11 @@ pub fn run_loop(
                 if let Some(ref srv) = *socket_server {
                     let path = srv.path().to_string();
                     a.socket_path = Some(path.clone());
-                    a.set_status(format!("Socket: {path}"));
+                    let msg = match crate::clipboard::copy_to_clipboard(&path) {
+                        Ok(()) => format!("Socket copied: {path}"),
+                        Err(_) => format!("Socket: {path}"),
+                    };
+                    a.set_status(msg);
                 } else {
                     let path = std::env::temp_dir()
                         .join(format!("hexcap_{}.sock", std::process::id()))
@@ -270,7 +275,13 @@ pub fn run_loop(
                         Ok(srv) => {
                             *socket_server = Some(srv);
                             a.socket_path = Some(path.clone());
-                            a.set_status(format!("Socket: {path}"));
+                            // Replay buffered packets to new socket clients.
+                            agent_last_sent = 0;
+                            let msg = match crate::clipboard::copy_to_clipboard(&path) {
+                                Ok(()) => format!("Socket copied: {path}"),
+                                Err(_) => format!("Socket: {path}"),
+                            };
+                            a.set_status(msg);
                         }
                         Err(e) => {
                             a.set_status(format!("Socket failed: {e}"));

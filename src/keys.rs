@@ -311,7 +311,11 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char(':') => app.start_goto(),
         KeyCode::Char('X') => {
             if let Some(ref path) = app.socket_path {
-                app.set_status(format!("Socket: {path}"));
+                let msg = match clipboard::copy_to_clipboard(path) {
+                    Ok(()) => format!("Socket copied: {path}"),
+                    Err(_) => format!("Socket: {path}"),
+                };
+                app.set_status(msg);
             } else {
                 app.pending_socket_create = true;
             }

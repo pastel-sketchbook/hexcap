@@ -136,6 +136,12 @@ pub fn draw_header(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         right_spans.push(sep());
     }
 
+    // Socket badge.
+    if app.socket_path.is_some() {
+        right_spans.push(Span::styled("Socket", badge_style(theme.tag)));
+        right_spans.push(sep());
+    }
+
     // Packet count.
     right_spans.push(Span::styled(
         format!("{}", app.packets.len()),
