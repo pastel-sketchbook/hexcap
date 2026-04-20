@@ -33,6 +33,7 @@ const BINDINGS: &[(&str, &str)] = &[
     ("I", "Capture statistics summary"),
     ("x", "Mark packet for diff / show diff"),
     ("a", "Annotate packet"),
+    ("\\", "Display filter (tcp, port:443, !arp)"),
     ("?", "Toggle this help"),
 ];
 

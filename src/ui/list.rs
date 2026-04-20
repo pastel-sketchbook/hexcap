@@ -229,6 +229,29 @@ pub fn draw_annotation_bar(frame: &mut Frame, app: &App, theme: &Theme, area: Re
     frame.render_widget(paragraph, area);
 }
 
+/// Render the display filter input bar.
+pub fn draw_display_filter_bar(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
+    let active = !app.display_filter.is_empty();
+    let label = if active { " \\ filter: " } else { " \\ " };
+    let text = Line::from(vec![
+        Span::styled(
+            label,
+            Style::default()
+                .fg(theme.key_fg)
+                .bg(theme.key_bg)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {}", app.display_filter_buf),
+            Style::default().fg(theme.fg),
+        ),
+        Span::styled("▌", Style::default().fg(theme.accent)),
+    ]);
+    let paragraph =
+        ratatui::widgets::Paragraph::new(text).style(Style::default().bg(theme.panel_bg));
+    frame.render_widget(paragraph, area);
+}
+
 fn format_time(p: &CapturedPacket) -> String {
     let secs = p
         .timestamp

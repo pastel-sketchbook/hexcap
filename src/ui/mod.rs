@@ -72,8 +72,11 @@ fn draw_list_layout(frame: &mut Frame, app: &App) {
     let theme = app.theme();
     let area = frame.area();
 
-    let input_bar_height =
-        u16::from(app.input_mode == InputMode::Search || app.annotating.is_some());
+    let input_bar_height = u16::from(
+        app.input_mode == InputMode::Search
+            || app.annotating.is_some()
+            || app.display_filter_editing,
+    );
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -93,6 +96,8 @@ fn draw_list_layout(frame: &mut Frame, app: &App) {
         list::draw_search_bar(frame, app, theme, chunks[3]);
     } else if app.annotating.is_some() {
         list::draw_annotation_bar(frame, app, theme, chunks[3]);
+    } else if app.display_filter_editing {
+        list::draw_display_filter_bar(frame, app, theme, chunks[3]);
     }
     footer::draw_footer(frame, app, theme, chunks[4]);
 }

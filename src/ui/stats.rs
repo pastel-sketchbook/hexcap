@@ -61,6 +61,14 @@ pub fn draw_stats_row(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         parts.push(Span::styled("│ flow ✓ ", Style::default().fg(theme.accent)));
     }
 
+    // Display filter indicator.
+    if !app.display_filter.is_empty() {
+        parts.push(Span::styled(
+            format!("│ {} ", app.display_filter),
+            Style::default().fg(theme.accent),
+        ));
+    }
+
     // Capture duration and PPS.
     let elapsed = app.capture_start.elapsed().as_secs();
     let dur_h = elapsed / 3600;

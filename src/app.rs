@@ -85,6 +85,12 @@ pub struct App {
     pub input_mode: InputMode,
     pub search_query: String,
     pub proto_filter: ProtoFilter,
+    /// Display filter expression (e.g., "tcp port:443 !dns").
+    pub display_filter: String,
+    /// Whether the display filter input bar is active.
+    pub display_filter_editing: bool,
+    /// Buffer for editing the display filter.
+    pub display_filter_buf: String,
     pub follow: bool,
     /// Follow mode scroll interval: 1 = every packet, 5 = every 5th, etc.
     pub follow_interval: u64,
@@ -235,6 +241,9 @@ impl App {
             input_mode: InputMode::Normal,
             search_query: String::new(),
             proto_filter: ProtoFilter::All,
+            display_filter: String::new(),
+            display_filter_editing: false,
+            display_filter_buf: String::new(),
             follow: true,
             follow_interval: 1,
             follow_counter: 0,
@@ -336,6 +345,10 @@ impl App {
             if &pkt_flow != fk {
                 return false;
             }
+        }
+        // Display filter.
+        if !self.display_filter.is_empty() && !matches_display_filter(pkt, &self.display_filter) {
+            return false;
         }
         true
     }
@@ -845,6 +858,32 @@ impl App {
         self.annotation_buf.pop();
     }
 
+    // -- Display filter --------------------------------------------------------
+
+    pub fn start_display_filter(&mut self) {
+        self.display_filter_editing = true;
+        self.display_filter_buf = self.display_filter.clone();
+    }
+
+    pub fn confirm_display_filter(&mut self) {
+        self.display_filter = self.display_filter_buf.clone();
+        self.display_filter_editing = false;
+        self.clamp_selected();
+    }
+
+    pub fn cancel_display_filter(&mut self) {
+        self.display_filter_editing = false;
+        self.display_filter_buf.clear();
+    }
+
+    pub fn display_filter_push(&mut self, ch: char) {
+        self.display_filter_buf.push(ch);
+    }
+
+    pub fn display_filter_pop(&mut self) {
+        self.display_filter_buf.pop();
+    }
+
     pub fn scroll_up(&mut self) {
         self.hex_scroll = self.hex_scroll.saturating_sub(1);
     }
@@ -1078,6 +1117,60 @@ fn payload_contains_hex(data: &[u8], query: &str) -> bool {
     }
     data.windows(pattern.len())
         .any(|window| window == pattern.as_slice())
+}
+
+/// Check whether a packet matches a Wireshark-style display filter expression.
+///
+/// Supported tokens (space-separated, all must match = AND):
+/// - Protocol: `tcp`, `udp`, `icmp`, `dns`, `arp`
+/// - Port:    `port:443`
+/// - IP:      `ip:10.0.0.1`
+/// - Flags:   `syn`, `rst`, `fin`
+/// - Negation: prefix any token with `!` (e.g. `!arp`, `!port:22`)
+fn matches_display_filter(pkt: &CapturedPacket, filter: &str) -> bool {
+    for token in filter.split_whitespace() {
+        let (negated, tok) = if let Some(rest) = token.strip_prefix('!') {
+            (true, rest)
+        } else {
+            (false, token)
+        };
+        let matched = match tok.to_ascii_lowercase().as_str() {
+            "tcp" => pkt.protocol == Protocol::Tcp,
+            "udp" => pkt.protocol == Protocol::Udp,
+            "icmp" => pkt.protocol == Protocol::Icmp,
+            "dns" => pkt.protocol == Protocol::Dns,
+            "arp" => pkt.protocol == Protocol::Arp,
+            "syn" => pkt.tcp_flags & 0x02 != 0,
+            "rst" => pkt.tcp_flags & 0x04 != 0,
+            "fin" => pkt.tcp_flags & 0x01 != 0,
+            other => {
+                if let Some(port_str) = other.strip_prefix("port:") {
+                    if let Ok(port) = port_str.parse::<u16>() {
+                        let src_port = extract_port(&pkt.src);
+                        let dst_port = extract_port(&pkt.dst);
+                        src_port == Some(port) || dst_port == Some(port)
+                    } else {
+                        false
+                    }
+                } else if let Some(ip_str) = other.strip_prefix("ip:") {
+                    pkt.src.starts_with(ip_str) || pkt.dst.starts_with(ip_str)
+                } else {
+                    // Unknown token — treat as no-match to surface typos.
+                    false
+                }
+            }
+        };
+        if negated == matched {
+            return false;
+        }
+    }
+    true
+}
+
+/// Extract the port number from an address string like `192.168.1.1:443` or `[::1]:80`.
+fn extract_port(addr: &str) -> Option<u16> {
+    let colon_pos = addr.rfind(':')?;
+    addr[colon_pos + 1..].parse().ok()
 }
 
 /// Extract TCP payload from a raw Ethernet frame.

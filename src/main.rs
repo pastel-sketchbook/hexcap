@@ -388,6 +388,18 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         return false;
     }
 
+    // Display filter input mode.
+    if app.display_filter_editing {
+        match code {
+            KeyCode::Esc => app.cancel_display_filter(),
+            KeyCode::Enter => app.confirm_display_filter(),
+            KeyCode::Backspace => app.display_filter_pop(),
+            KeyCode::Char(ch) => app.display_filter_push(ch),
+            _ => {}
+        }
+        return false;
+    }
+
     // Help overlay — Esc or ? closes it.
     if app.show_help {
         match code {
@@ -481,6 +493,7 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('I') => app.show_stats_summary = true,
         KeyCode::Char('x') => app.mark_or_diff(),
         KeyCode::Char('a') => app.start_annotate(),
+        KeyCode::Char('\\') => app.start_display_filter(),
         _ => {}
     }
     false
