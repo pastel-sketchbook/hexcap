@@ -52,6 +52,47 @@ pub fn draw_packet_info(frame: &mut Frame, app: &App, theme: &Theme, area: Rect)
     frame.render_widget(info, area);
 }
 
+/// Render decoded protocol fields between info bar and hex dump.
+pub fn draw_decoded_fields(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
+    let title_style = Style::default()
+        .fg(theme.accent)
+        .add_modifier(Modifier::BOLD);
+    let label_style = Style::default().fg(theme.accent);
+
+    let lines: Vec<Line> = if let Some(pkt) = app.selected_packet() {
+        if pkt.decoded.is_empty() {
+            vec![Line::from(Span::styled(
+                "No decoded fields",
+                Style::default().fg(theme.muted),
+            ))]
+        } else {
+            pkt.decoded
+                .iter()
+                .map(|f| {
+                    Line::from(vec![
+                        Span::styled(format!("{}: ", f.label), label_style),
+                        Span::raw(&f.value),
+                    ])
+                })
+                .collect()
+        }
+    } else {
+        vec![]
+    };
+
+    let widget = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border))
+                .title(" Protocol ")
+                .title_style(title_style),
+        )
+        .wrap(Wrap { trim: false });
+
+    frame.render_widget(widget, area);
+}
+
 /// Render the hex dump pane.
 pub fn draw_hex_dump(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     let title_style = Style::default()

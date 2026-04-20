@@ -68,23 +68,33 @@ fn draw_list_layout(frame: &mut Frame, app: &App) {
     footer::draw_footer(frame, app, theme, chunks[4]);
 }
 
-/// Detail layout: header | packet info | hex dump | footer.
+/// Detail layout: header | packet info | decoded fields | hex dump | footer.
 fn draw_detail_layout(frame: &mut Frame, app: &App) {
     let theme = app.theme();
     let area = frame.area();
 
+    // Calculate decoded fields height dynamically.
+    let decoded_count = app
+        .selected_packet()
+        .map_or(0, |pkt| pkt.decoded.len().max(1));
+    let decoded_height = u16::try_from(decoded_count)
+        .unwrap_or(u16::MAX)
+        .saturating_add(2);
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // header
-            Constraint::Length(3), // packet info
-            Constraint::Min(5),    // hex dump (flexible)
-            Constraint::Length(1), // footer
+            Constraint::Length(3),              // header
+            Constraint::Length(3),              // packet info
+            Constraint::Length(decoded_height), // decoded protocol fields
+            Constraint::Min(5),                 // hex dump (flexible)
+            Constraint::Length(1),              // footer
         ])
         .split(area);
 
     header::draw_header(frame, app, theme, chunks[0]);
     detail::draw_packet_info(frame, app, theme, chunks[1]);
-    detail::draw_hex_dump(frame, app, theme, chunks[2]);
-    footer::draw_footer(frame, app, theme, chunks[3]);
+    detail::draw_decoded_fields(frame, app, theme, chunks[2]);
+    detail::draw_hex_dump(frame, app, theme, chunks[3]);
+    footer::draw_footer(frame, app, theme, chunks[4]);
 }
