@@ -290,6 +290,15 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         return false;
     }
 
+    // Diff overlay.
+    if app.diff_pair.is_some() {
+        match code {
+            KeyCode::Esc | KeyCode::Char('x' | 'q') => app.diff_pair = None,
+            _ => {}
+        }
+        return false;
+    }
+
     match app.view {
         View::List => handle_list_key(app, code),
         View::Detail => {
@@ -354,6 +363,7 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('<') => app.narrow_column(),
         KeyCode::Char('?') => app.show_help = true,
         KeyCode::Char('I') => app.show_stats_summary = true,
+        KeyCode::Char('x') => app.mark_or_diff(),
         _ => {}
     }
     false

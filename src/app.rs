@@ -150,6 +150,12 @@ pub struct App {
 
     // -- Stats summary overlay --
     pub show_stats_summary: bool,
+
+    // -- Packet diff --
+    /// First packet ID marked for diff comparison.
+    pub diff_mark: Option<u64>,
+    /// When set, show diff overlay comparing these two packet indices.
+    pub diff_pair: Option<(usize, usize)>,
 }
 
 /// Aggregated info for a single bidirectional flow.
@@ -241,6 +247,8 @@ impl App {
             column_widths: [0; 6],
             show_help: false,
             show_stats_summary: false,
+            diff_mark: None,
+            diff_pair: None,
         }
     }
 
@@ -710,6 +718,35 @@ impl App {
                     return;
                 }
             }
+        }
+    }
+
+    /// Mark current packet for diff, or open diff if a mark already exists.
+    pub fn mark_or_diff(&mut self) {
+        let Some(pkt) = self.selected_packet() else {
+            return;
+        };
+        let current_id = pkt.id;
+        let current_idx = self.selected;
+
+        if let Some(mark_id) = self.diff_mark {
+            if mark_id == current_id {
+                self.diff_mark = None;
+                self.set_status("Diff mark cleared".into());
+                return;
+            }
+            if let Some(mark_idx) = self.packets.iter().position(|p| p.id == mark_id) {
+                self.diff_pair = Some((mark_idx, current_idx));
+                self.diff_mark = None;
+            } else {
+                self.set_status("Marked packet no longer in buffer".into());
+                self.diff_mark = None;
+            }
+        } else {
+            self.diff_mark = Some(current_id);
+            self.set_status(format!(
+                "Marked #{current_id} for diff — select another and press x"
+            ));
         }
     }
 

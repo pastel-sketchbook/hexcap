@@ -1,4 +1,5 @@
 mod detail;
+mod diff;
 mod flows;
 mod footer;
 mod header;
@@ -58,6 +59,11 @@ pub fn render(frame: &mut Frame, app: &App) {
     // Overlay: stats summary popup.
     if app.show_stats_summary {
         stats_summary::draw_stats_summary(frame, app, theme);
+    }
+
+    // Overlay: packet diff.
+    if app.diff_pair.is_some() {
+        diff::draw_diff(frame, app, theme);
     }
 }
 
