@@ -91,18 +91,6 @@ fn proto_color(proto: Protocol, theme: &Theme) -> Color {
     }
 }
 
-/// 8 distinct pastel flow colors for visual grouping.
-const FLOW_PALETTE: [Color; 8] = [
-    Color::Rgb(255, 150, 150), // rose
-    Color::Rgb(150, 200, 255), // sky
-    Color::Rgb(180, 255, 180), // mint
-    Color::Rgb(255, 210, 130), // peach
-    Color::Rgb(200, 170, 255), // lavender
-    Color::Rgb(130, 230, 220), // teal
-    Color::Rgb(255, 180, 220), // pink
-    Color::Rgb(220, 220, 140), // lime
-];
-
 /// Render the packet list table.
 pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     let header = table_header(theme);
@@ -128,10 +116,10 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
             let flow = FlowKey::new(&p.src, &p.dst);
             let flow_idx = *flow_map.entry(flow).or_insert_with(|| {
                 let i = next_color;
-                next_color = (next_color + 1) % FLOW_PALETTE.len();
+                next_color = (next_color + 1) % theme.flow_colors.len();
                 i
             });
-            let flow_col = FLOW_PALETTE[flow_idx];
+            let flow_col = theme.flow_colors[flow_idx];
 
             let has_bookmark = app.bookmarks.contains(&p.id);
             let has_annotation = app.annotations.contains_key(&p.id);

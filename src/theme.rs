@@ -24,7 +24,34 @@ pub struct Theme {
     pub hex_high: Color,
     pub hex_other: Color,
     pub hex_offset: Color,
+    /// 8 flow colors for visual grouping of packet flows.
+    /// Pastel for dark themes, deeper/saturated for light themes (WCAG AA ≥4.5:1).
+    pub flow_colors: [Color; 8],
 }
+
+/// Pastel flow palette for dark backgrounds (WCAG AA ≥4.5:1 against ~#1a1a2e).
+const FLOW_DARK: [Color; 8] = [
+    Color::Rgb(255, 150, 150), // rose
+    Color::Rgb(150, 200, 255), // sky
+    Color::Rgb(180, 255, 180), // mint
+    Color::Rgb(255, 210, 130), // peach
+    Color::Rgb(200, 170, 255), // lavender
+    Color::Rgb(130, 230, 220), // teal
+    Color::Rgb(255, 180, 220), // pink
+    Color::Rgb(220, 220, 140), // lime
+];
+
+/// Deep/saturated flow palette for light backgrounds (WCAG AA ≥4.5:1 against ~#f5f5f5).
+const FLOW_LIGHT: [Color; 8] = [
+    Color::Rgb(180, 40, 40),   // crimson
+    Color::Rgb(30, 90, 180),   // cobalt
+    Color::Rgb(20, 130, 50),   // forest
+    Color::Rgb(180, 100, 0),   // amber
+    Color::Rgb(110, 50, 180),  // violet
+    Color::Rgb(0, 130, 120),   // teal
+    Color::Rgb(170, 50, 110),  // magenta
+    Color::Rgb(100, 110, 20),  // olive
+];
 
 pub const THEMES: &[Theme] = &[
     // ── Dark themes ─────────────────────────────────────────────────
@@ -49,6 +76,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(180, 140, 255),
         hex_other: Color::Rgb(255, 200, 60),
         hex_offset: Color::DarkGray,
+        flow_colors: FLOW_DARK,
     },
     // 1: Gruvbox
     Theme {
@@ -71,6 +99,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(211, 134, 155),
         hex_other: Color::Rgb(250, 189, 47),
         hex_offset: Color::Rgb(146, 131, 116),
+        flow_colors: FLOW_DARK,
     },
     // 2: Solarized
     Theme {
@@ -93,6 +122,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(108, 113, 196),
         hex_other: Color::Rgb(181, 137, 0),
         hex_offset: Color::Rgb(131, 148, 150),
+        flow_colors: FLOW_DARK,
     },
     // 3: Ayu
     Theme {
@@ -115,6 +145,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(210, 154, 230),
         hex_other: Color::Rgb(255, 180, 84),
         hex_offset: Color::Rgb(92, 103, 115),
+        flow_colors: FLOW_DARK,
     },
     // 4: Flexoki
     Theme {
@@ -137,6 +168,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(142, 139, 206),
         hex_other: Color::Rgb(208, 162, 21),
         hex_offset: Color::Rgb(135, 133, 128),
+        flow_colors: FLOW_DARK,
     },
     // 5: Zoegi
     Theme {
@@ -159,6 +191,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(150, 180, 210),
         hex_other: Color::Rgb(128, 200, 160),
         hex_offset: Color::Rgb(89, 89, 89),
+        flow_colors: FLOW_DARK,
     },
     // 6: FFE Dark
     Theme {
@@ -181,6 +214,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(137, 220, 235),
         hex_other: Color::Rgb(240, 169, 136),
         hex_offset: Color::Rgb(155, 162, 175),
+        flow_colors: FLOW_DARK,
     },
     // 7: Postrboard
     Theme {
@@ -203,6 +237,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(96, 165, 250),
         hex_other: Color::Rgb(251, 138, 77),
         hex_offset: Color::Rgb(124, 141, 163),
+        flow_colors: FLOW_DARK,
     },
     // ── Light themes ────────────────────────────────────────────────
     // 8: Default Light
@@ -226,6 +261,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(100, 80, 180),
         hex_other: Color::Rgb(160, 100, 10),
         hex_offset: Color::Rgb(120, 120, 130),
+        flow_colors: FLOW_LIGHT,
     },
     // 9: Gruvbox Light
     Theme {
@@ -248,6 +284,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(143, 63, 113),
         hex_other: Color::Rgb(175, 58, 3),
         hex_offset: Color::Rgb(146, 131, 116),
+        flow_colors: FLOW_LIGHT,
     },
     // 10: Solarized Light
     Theme {
@@ -270,6 +307,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(108, 113, 196),
         hex_other: Color::Rgb(181, 137, 0),
         hex_offset: Color::Rgb(147, 161, 161),
+        flow_colors: FLOW_LIGHT,
     },
     // 11: Flexoki Light
     Theme {
@@ -292,6 +330,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(100, 92, 187),
         hex_other: Color::Rgb(173, 131, 1),
         hex_offset: Color::Rgb(111, 110, 105),
+        flow_colors: FLOW_LIGHT,
     },
     // 12: Ayu Light
     Theme {
@@ -314,6 +353,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(163, 122, 204),
         hex_other: Color::Rgb(230, 138, 0),
         hex_offset: Color::Rgb(153, 160, 166),
+        flow_colors: FLOW_LIGHT,
     },
     // 13: Zoegi Light
     Theme {
@@ -336,6 +376,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(80, 120, 160),
         hex_other: Color::Rgb(150, 110, 30),
         hex_offset: Color::Rgb(89, 89, 89),
+        flow_colors: FLOW_LIGHT,
     },
     // 14: FFE Light
     Theme {
@@ -358,6 +399,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(58, 142, 164),
         hex_other: Color::Rgb(192, 121, 32),
         hex_offset: Color::Rgb(74, 80, 96),
+        flow_colors: FLOW_LIGHT,
     },
     // 15: Postrboard Light
     Theme {
@@ -380,6 +422,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(12, 74, 110),
         hex_other: Color::Rgb(194, 65, 12),
         hex_offset: Color::Rgb(100, 116, 139),
+        flow_colors: FLOW_LIGHT,
     },
 ];
 

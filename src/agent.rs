@@ -96,8 +96,10 @@ pub const AGENT_PRESETS: &[AgentPreset] = &[
              First: connect to the socket using socat or nc -U, \
              register with @@HEXCAP:{\"action\":\"register\",\"name\":\"opencode\",\"capabilities\":[\"analyze\",\"filter\"]}, \
              then send @@HEXCAP:{\"action\":\"chat\",\"message\":\"ACK\"} to confirm. \
-             Keep this session alive — the user will send questions and commands \
-             through hexcap chat. Respond via @@HEXCAP:{\"action\":\"chat\",\"message\":\"...\"} commands. \
+             A background socat listener is writing incoming socket messages to {inbox}. \
+             To read user messages from hexcap, run: cat {inbox} or tail -f {inbox}. \
+             Respond via: echo '@@HEXCAP:{\"action\":\"chat\",\"message\":\"your reply\"}' | socat - UNIX-CONNECT:{socket}. \
+             Keep this session alive for ongoing chat. \
              You can query hexcap for packets, flows, stats, and streams at any time."
         ),
     },
@@ -175,16 +177,27 @@ pub fn open_tmux_split(agent_bin: &str, socket_path: &str, prompt: Option<&str>)
     if !is_tmux() {
         return Ok(false);
     }
+    // Persistent socat listener writes incoming socket messages to an inbox file
+    // so the agent can read chat messages from hexcap.
+    let inbox = format!("{socket_path}.inbox");
     let prompt_arg = prompt
         .map(|p| {
-            let expanded = p.replace("{socket}", socket_path);
+            let expanded = p
+                .replace("{socket}", socket_path)
+                .replace("{inbox}", &inbox);
             // Use double quotes so we don't break the outer single-quote wrapping.
             format!(r#" --prompt "{}""#, expanded.replace('"', r#"\""#))
         })
         .unwrap_or_default();
     // When running under sudo, drop back to the original user so the tmux
     // pane runs in their session with their PATH (where opencode lives).
-    let inner = format!("HEXCAP_SOCKET={socket_path} exec {agent_bin}{prompt_arg}");
+    // Start a background socat that stays connected to the socket and appends
+    // incoming messages to the inbox file, then exec the agent.
+    let inner = format!(
+        "HEXCAP_SOCKET={socket_path} HEXCAP_INBOX={inbox} \
+         socat UNIX-CONNECT:{socket_path} - >> {inbox} 2>/dev/null & \
+         exec {agent_bin}{prompt_arg}"
+    );
     let wrapped = if let Ok(user) = std::env::var("SUDO_USER") {
         format!("sudo -u {user} sh -c '{inner}'")
     } else {
@@ -223,16 +236,19 @@ pub fn open_ghostty_split(agent_bin: &str, socket_path: &str, prompt: Option<&st
     if !crate::ui::helpers::is_ghostty() {
         return Ok(false);
     }
+    let inbox = format!("{socket_path}.inbox");
     let prompt_arg = prompt
         .map(|p| {
-            let expanded = p.replace("{socket}", socket_path);
+            let expanded = p
+                .replace("{socket}", socket_path)
+                .replace("{inbox}", &inbox);
             format!(" --prompt \\\"{}\\\"", expanded.replace('"', "\\\\\\\""))
         })
         .unwrap_or_default();
     let script = format!(
         r#"tell application "Ghostty"
     set cfg to new surface configuration
-    set command of cfg to "/bin/zsh -l -c 'export HEXCAP_SOCKET={socket_path}; exec {agent_bin}{prompt_arg}'"
+    set command of cfg to "/bin/zsh -l -c 'export HEXCAP_SOCKET={socket_path}; export HEXCAP_INBOX={inbox}; socat UNIX-CONNECT:{socket_path} - >> {inbox} 2>/dev/null & exec {agent_bin}{prompt_arg}'"
     set t to focused terminal of selected tab of front window
     split t direction right with configuration cfg
 end tell"#
