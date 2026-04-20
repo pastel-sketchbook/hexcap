@@ -7,9 +7,10 @@ description: |
   hex dump inspection, TCP stream follow, TLS handshake decode, DNS resolution,
   GeoIP lookup, flow tracking, process filtering, packet diff, annotations,
   capture statistics, TCP sequence analysis, expert information, protocol
-  hierarchy, flow sequence diagrams, and time display formats. Use when
-  troubleshooting network issues, analyzing traffic patterns, inspecting
-  protocols, or performing packet-level forensics.
+  hierarchy, flow sequence diagrams, time display formats, agent pipe/socket
+  communication, and headless JSON output. Use when troubleshooting network
+  issues, analyzing traffic patterns, inspecting protocols, or performing
+  packet-level forensics.
 allowed-tools:
   - Read
   - Grep
@@ -73,6 +74,10 @@ sudo hexcap --max-packets 5000
 | `--max-packets` | `-m` | 10000 | Maximum packets in ring buffer |
 | `--geoip` | | none | Path to MaxMind GeoLite2-Country MMDB |
 | `--json` | | false | Output JSON instead of launching TUI |
+| `--compact` | | false | Compact JSON (no pretty-printing) |
+| `--dns` | | false | Enable DNS enrichment in headless mode |
+| `--pipe` | | none | Pipe JSONL to child process (e.g. "uv run agent.py") |
+| `--socket` | | none | Unix domain socket path for JSONL broadcast |
 
 ## Keybindings
 
@@ -108,6 +113,8 @@ sudo hexcap --max-packets 5000
 | `T` | Cycle time format (absolute / relative / delta) |
 | `R` | Toggle time reference on selected packet (t=0 point) |
 | `:` | Go to packet by number |
+| `A` | Toggle agent output pane |
+| `J` / `K` | Scroll agent pane down / up |
 | `?` | Keyboard shortcut help |
 | `Tab` | Select column to resize |
 | `<` / `>` | Narrow / widen selected column |
@@ -282,6 +289,7 @@ these directly instead of tcpdump/tshark workarounds.
 | `hexcap stats <file>` | JSON object | Protocol distribution, top talkers, top conversations |
 | `hexcap stream <file> [--flow src-dst]` | JSON object | TCP stream payload for a flow |
 | `hexcap decode <file> --id N` | JSON object | Single packet with full decode |
+| `hexcap interfaces` | JSON array | List available capture interfaces |
 
 The `--json` flag on the root CLI provides equivalent output:
 - `hexcap --json --read file.pcap` → JSON array (same as `hexcap read`)
@@ -322,6 +330,26 @@ hexcap decode capture.pcap --id 42 | jq '.decoded_fields'
 hexcap stream capture.pcap --flow 10.0.0.1:4321-93.184.216.34:443
 ```
 
+**Agent pipe (live JSONL to child process with TUI pane):**
+```bash
+# Pipe live packets to an agent script, see output in bottom pane
+sudo hexcap --pipe "uv run analyze.py"
+# Toggle pane: A, scroll: J/K
+```
+
+**Agent socket (broadcast JSONL to external clients):**
+```bash
+# Start hexcap with UDS broadcast
+sudo hexcap --socket /tmp/hexcap.sock
+# External agent connects: socat UNIX-CONNECT:/tmp/hexcap.sock -
+```
+
+**Enriched headless output:**
+```bash
+# DNS + GeoIP enrichment in headless mode
+hexcap read capture.pcap --dns --geoip country.mmdb --compact
+```
+
 ## Architecture Notes
 
 - Capture runs on background thread(s) via `std::thread`; TUI on main thread
@@ -337,3 +365,5 @@ hexcap stream capture.pcap --flow 10.0.0.1:4321-93.184.216.34:443
 - DNS resolution: libc `getnameinfo`, background batch resolver
 - GeoIP: `maxminddb` crate, inline during display (not capture)
 - Ring buffer: `VecDeque` bounded by `--max-packets`
+- Agent pipe: spawns child via `sh -c`, JSONL to stdin, stdout read into ring buffer, displayed in 35% bottom split pane
+- Agent socket: Unix domain socket, accepts multiple clients, broadcasts JSONL; cleaned up on drop

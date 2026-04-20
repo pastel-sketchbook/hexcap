@@ -77,7 +77,7 @@ struct Cli {
     #[arg(long)]
     dns: bool,
 
-    /// Pipe captured packets as JSONL to a child process (e.g. "python agent.py")
+    /// Pipe captured packets as JSONL to a child process (e.g. "uv run agent.py")
     #[arg(long)]
     pipe: Option<String>,
 

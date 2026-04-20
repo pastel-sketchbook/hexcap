@@ -56,6 +56,8 @@ terminal.
 - **Help overlay** — `?` shows all keybindings in a popup
 - **Vim keybindings** — j/k, g/G, d/u, Enter, Esc, /
 - **Headless/JSON mode** — CLI subcommands and `--json` flag for agent/pipeline consumption
+- **Agent pipe** — `--pipe "command"` spawns a child, feeds JSONL to stdin, displays stdout in a 35% bottom pane
+- **Agent socket** — `--socket /path` creates a Unix domain socket broadcasting JSONL to all connected clients
 
 ## Install
 
@@ -96,6 +98,12 @@ sudo hexcap -i en0,lo0
 
 # Enable GeoIP country lookup
 sudo hexcap --geoip /path/to/GeoLite2-Country.mmdb
+
+# Pipe packets to an agent process (JSONL to stdin, stdout in pane)
+sudo hexcap --pipe "uv run agent.py"
+
+# Stream packets to a Unix domain socket for external agents
+sudo hexcap --socket /tmp/hexcap.sock
 ```
 
 ## Agent / Pipeline Mode
@@ -124,6 +132,21 @@ hexcap stream capture.pcap --flow 10.0.0.1:4321-93.184.216.34:443
 
 # Decode a single packet by index
 hexcap decode capture.pcap --id 42
+
+# List available interfaces
+hexcap interfaces
+
+# Compact JSON output (no pretty-printing)
+hexcap flows capture.pcap --compact
+
+# Enable DNS enrichment in headless mode
+hexcap read capture.pcap --dns
+
+# Pipe packets to an agent with live TUI pane
+sudo hexcap --pipe "uv run analyze.py"
+
+# Stream to Unix socket for external agents
+sudo hexcap --socket /tmp/hexcap.sock
 
 # --json flag on root CLI (same output, alternate syntax)
 hexcap --json --read capture.pcap
@@ -167,6 +190,8 @@ sudo hexcap --json -i en0 --max-packets 200
 | `T`            | Cycle time format (abs/rel/delta) |
 | `R`            | Toggle time reference on packet |
 | `:`            | Go to packet by number       |
+| `A`            | Toggle agent output pane     |
+| `J` / `K`     | Scroll agent pane down/up    |
 | `?`            | Show keybindings help        |
 | `t`            | Cycle theme                  |
 | `q`            | Quit                         |
@@ -223,6 +248,7 @@ The last selected theme is persisted to `~/.config/hexcap/preferences.toml`.
 ```
 src/
   main.rs       — entry point, terminal setup, event loop, key dispatch
+  agent.rs      — agent pipe (child process JSONL feed) and socket server (UDS broadcast)
   app.rs        — application state, navigation, filtering, flow tracking
   capture.rs    — libpcap capture thread with AtomicBool stop signal
   clipboard.rs  — system clipboard helper (pbcopy/xclip)
@@ -253,6 +279,7 @@ src/
     expert_overlay.rs — expert information overlay
     proto_hierarchy.rs — protocol hierarchy & endpoint stats overlay
     diff.rs     — packet hex diff overlay
+    agent_pane.rs — agent output split pane
 ```
 
 See [docs/rationale/](docs/rationale/) for design decision rationale:
