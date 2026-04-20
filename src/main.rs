@@ -497,6 +497,18 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         return false;
     }
 
+    // Go-to-packet input mode.
+    if app.input_mode == InputMode::GoToPacket {
+        match code {
+            KeyCode::Esc => app.cancel_goto(),
+            KeyCode::Enter => app.confirm_goto(),
+            KeyCode::Backspace => app.goto_pop(),
+            KeyCode::Char(ch) => app.goto_push(ch),
+            _ => {}
+        }
+        return false;
+    }
+
     // Annotation input mode.
     if app.annotating.is_some() {
         match code {
@@ -627,6 +639,7 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('\\') => app.start_display_filter(),
         KeyCode::Char('T') => app.cycle_time_format(),
         KeyCode::Char('R') => app.toggle_time_reference(),
+        KeyCode::Char(':') => app.start_goto(),
         _ => {}
     }
     false

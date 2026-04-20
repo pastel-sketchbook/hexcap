@@ -37,6 +37,8 @@ pub enum InputMode {
     #[default]
     Normal,
     Search,
+    /// Go-to-packet-by-number input.
+    GoToPacket,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -205,6 +207,9 @@ pub struct App {
     pub time_format: TimeFormat,
     /// Packet ID set as time reference (t=0 point).
     pub time_reference: Option<u64>,
+
+    // -- Go to packet --
+    pub goto_buf: String,
 }
 
 /// Aggregated info for a single bidirectional flow.
@@ -326,6 +331,7 @@ impl App {
             show_expert: false,
             time_format: TimeFormat::Absolute,
             time_reference: None,
+            goto_buf: String::new(),
         }
     }
 
@@ -447,6 +453,45 @@ impl App {
     pub fn confirm_search(&mut self) {
         self.input_mode = InputMode::Normal;
         self.clamp_selected();
+    }
+
+    // -- Go to packet --------------------------------------------------------
+
+    pub fn start_goto(&mut self) {
+        self.input_mode = InputMode::GoToPacket;
+        self.goto_buf.clear();
+    }
+
+    pub fn goto_push(&mut self, ch: char) {
+        if ch.is_ascii_digit() {
+            self.goto_buf.push(ch);
+        }
+    }
+
+    pub fn goto_pop(&mut self) {
+        self.goto_buf.pop();
+    }
+
+    pub fn confirm_goto(&mut self) {
+        self.input_mode = InputMode::Normal;
+        if let Ok(target_id) = self.goto_buf.parse::<u64>() {
+            let filtered = self.filtered_indices();
+            // Find the packet with this ID in the filtered view.
+            if let Some(&idx) = filtered.iter().find(|&&i| {
+                self.packets.get(i).is_some_and(|p| p.id == target_id)
+            }) {
+                self.selected = idx;
+                self.follow = false;
+            } else {
+                self.set_status(format!("Packet #{target_id} not found"));
+            }
+        }
+        self.goto_buf.clear();
+    }
+
+    pub fn cancel_goto(&mut self) {
+        self.input_mode = InputMode::Normal;
+        self.goto_buf.clear();
     }
 
     pub fn search_push(&mut self, ch: char) {
