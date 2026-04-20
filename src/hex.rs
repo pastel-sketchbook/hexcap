@@ -34,9 +34,7 @@ pub fn hex_lines(data: &[u8], theme: &Theme) -> Vec<Line<'static>> {
                 format!("{byte:02x}"),
                 Style::default().fg(color),
             ));
-            if j < BYTES_PER_LINE - 1 {
-                spans.push(Span::raw(" "));
-            }
+            spans.push(Span::raw(" "));
         }
 
         // Pad if chunk is shorter than BYTES_PER_LINE
@@ -48,7 +46,7 @@ pub fn hex_lines(data: &[u8], theme: &Theme) -> Vec<Line<'static>> {
             spans.push(Span::raw("   "));
         }
 
-        spans.push(Span::raw(" │ "));
+        spans.push(Span::raw("│ "));
 
         // ASCII column
         for byte in chunk {
