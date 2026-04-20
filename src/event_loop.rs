@@ -10,6 +10,7 @@ use crate::app::{App, View};
 use crate::{agent, capture, dns, geoip, keys, ui};
 
 /// Execute a single command received from an agent via the `@@HEXCAP:` protocol.
+#[allow(clippy::too_many_lines)]
 fn execute_agent_command(app: &mut App, cmd: agent::AgentCommand) {
     use agent::AgentCommand;
     match cmd {
@@ -101,8 +102,7 @@ fn execute_agent_command(app: &mut App, cmd: agent::AgentCommand) {
         }
         AgentCommand::Interface { name } => {
             let valid = capture::list_interfaces()
-                .map(|ifaces| ifaces.iter().any(|i| i.name == name))
-                .unwrap_or(false);
+                .is_ok_and(|ifaces| ifaces.iter().any(|i| i.name == name));
             if valid {
                 app.pending_interface = Some(name.clone());
                 app.set_status(format!("Agent: switching to {name}"));
@@ -223,11 +223,9 @@ fn execute_query(
                 "selected": app.selected,
             })
         }
-        QueryKind::Interfaces => {
-            capture::list_interfaces()
-                .map(|ifaces| serde_json::to_value(&ifaces).unwrap_or_default())
-                .unwrap_or(serde_json::json!([]))
-        }
+        QueryKind::Interfaces => capture::list_interfaces()
+            .map(|ifaces| serde_json::to_value(&ifaces).unwrap_or_default())
+            .unwrap_or(serde_json::json!([])),
         QueryKind::Agents => {
             if let Some(reg) = registry {
                 let reg = reg.lock().expect("registry mutex poisoned");
@@ -240,12 +238,8 @@ fn execute_query(
     }
 }
 
-/// Execute a stamped command (one that needs client_id context for routing).
-fn execute_stamped_command(
-    app: &mut App,
-    server: &agent::SocketServer,
-    sc: agent::StampedCommand,
-) {
+/// Execute a stamped command (one that needs `client_id` context for routing).
+fn execute_stamped_command(app: &mut App, server: &agent::SocketServer, sc: agent::StampedCommand) {
     use agent::AgentCommand;
     match sc.command {
         AgentCommand::Register { name, capabilities } => {
@@ -563,7 +557,9 @@ pub fn run_loop(
         // Drain and execute stamped commands (register/chat/ask/reply).
         {
             let cmds: Vec<agent::StampedCommand> = {
-                let mut q = stamped_commands.lock().expect("stamped commands mutex poisoned");
+                let mut q = stamped_commands
+                    .lock()
+                    .expect("stamped commands mutex poisoned");
                 q.drain(..).collect()
             };
             if !cmds.is_empty()

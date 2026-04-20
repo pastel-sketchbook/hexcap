@@ -57,7 +57,9 @@ pub fn draw_agent_pane(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) 
         .wrap(Wrap { trim: false })
         .scroll((
             #[allow(clippy::cast_possible_truncation)]
-            {scroll_offset as u16},
+            {
+                scroll_offset as u16
+            },
             0,
         ));
 

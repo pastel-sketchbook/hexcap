@@ -100,9 +100,7 @@ pub fn is_ghostty() -> bool {
     if std::env::var("GHOSTTY_RESOURCES_DIR").is_ok() {
         return true;
     }
-    if std::env::var("TERM_PROGRAM")
-        .is_ok_and(|v| v.eq_ignore_ascii_case("ghostty"))
-    {
+    if std::env::var("TERM_PROGRAM").is_ok_and(|v| v.eq_ignore_ascii_case("ghostty")) {
         return true;
     }
     std::process::Command::new("pgrep")

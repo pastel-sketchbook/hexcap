@@ -269,7 +269,7 @@ fn default_view() -> String {
     "list".into()
 }
 
-/// Returns true if the command needs client_id context for routing.
+/// Returns true if the command needs `client_id` context for routing.
 fn needs_client_context(cmd: &AgentCommand) -> bool {
     matches!(
         cmd,
@@ -373,7 +373,7 @@ pub struct AgentRegistration {
     pub capabilities: Vec<String>,
 }
 
-/// Shared agent registry (client_id → registration).
+/// Shared agent registry (`client_id` → registration).
 pub type AgentRegistry = Arc<Mutex<std::collections::HashMap<u64, AgentRegistration>>>;
 
 /// Create a new shared agent registry.
@@ -607,10 +607,12 @@ pub fn default_socket_path() -> String {
     let random: u64 = {
         // Use timestamp nanos XORed with PID as a simple random source.
         // Not cryptographic, but sufficient to prevent casual guessing.
-        let nanos = u64::from(std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .subsec_nanos());
+        let nanos = u64::from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos(),
+        );
         nanos ^ (u64::from(std::process::id()) << 32)
     };
     std::env::temp_dir()
@@ -846,12 +848,10 @@ impl SocketServer {
         });
     }
 
-    /// Look up a client_id by registered agent name.
+    /// Look up a `client_id` by registered agent name.
     pub fn resolve_agent(&self, name: &str) -> Option<u64> {
         let reg = self.registry.lock().expect("registry mutex poisoned");
-        reg.values()
-            .find(|r| r.name == name)
-            .map(|r| r.client_id)
+        reg.values().find(|r| r.name == name).map(|r| r.client_id)
     }
 
     /// Path to the socket file.
@@ -1032,8 +1032,7 @@ mod tests {
 
     #[test]
     fn parse_register_command() {
-        let line =
-            r#"@@HEXCAP:{"action":"register","name":"copilot","capabilities":["analyze","filter"]}"#;
+        let line = r#"@@HEXCAP:{"action":"register","name":"copilot","capabilities":["analyze","filter"]}"#;
         let cmd = parse_command(line).expect("should parse");
         assert!(matches!(
             cmd,
