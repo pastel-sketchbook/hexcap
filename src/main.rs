@@ -115,18 +115,21 @@ fn run_loop(
     let mut refresh_counter: u32 = 0;
     loop {
         // Check for pending interface switch.
-        {
+        let pending = {
             let mut a = app.lock().expect("app mutex poisoned");
-            if let Some(iface) = a.pending_interface.take() {
-                capture.stop();
-                match CaptureHandle::start(Some(&iface), bpf_filter, Arc::clone(app)) {
-                    Ok(new_cap) => {
-                        *capture = new_cap;
-                        a.set_status(format!("Switched to {iface}"));
-                    }
-                    Err(e) => {
-                        a.set_status(format!("Switch failed: {e}"));
-                    }
+            a.pending_interface.take()
+        };
+        if let Some(iface) = pending {
+            capture.stop();
+            match CaptureHandle::start(Some(&iface), bpf_filter, Arc::clone(app)) {
+                Ok(new_cap) => {
+                    *capture = new_cap;
+                    let mut a = app.lock().expect("app mutex poisoned");
+                    a.set_status(format!("Switched to {iface}"));
+                }
+                Err(e) => {
+                    let mut a = app.lock().expect("app mutex poisoned");
+                    a.set_status(format!("Switch failed: {e}"));
                 }
             }
         }
