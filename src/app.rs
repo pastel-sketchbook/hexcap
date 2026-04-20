@@ -98,6 +98,7 @@ pub struct App {
     pub paused: bool,
     pub hex_scroll: u16,
     pub theme_index: usize,
+    pub themes: Vec<Theme>,
 
     // -- Filtering --
     pub input_mode: InputMode,
@@ -282,6 +283,12 @@ impl App {
             theme::detect_initial_theme()
         };
 
+        // Build mutable theme list; patch Default themes with actual terminal bg.
+        let mut themes: Vec<Theme> = theme::THEMES.to_vec();
+        if let Some((r, g, b)) = theme::query_terminal_bg() {
+            theme::patch_default_themes(&mut themes, r, g, b);
+        }
+
         Self {
             packets: VecDeque::new(),
             max_packets,
@@ -290,6 +297,7 @@ impl App {
             paused: false,
             hex_scroll: 0,
             theme_index,
+            themes,
             input_mode: InputMode::Normal,
             search_query: String::new(),
             proto_filter: ProtoFilter::All,
@@ -346,12 +354,12 @@ impl App {
     // -- Theme ---------------------------------------------------------------
 
     #[must_use]
-    pub fn theme(&self) -> &'static Theme {
-        &theme::THEMES[self.theme_index]
+    pub fn theme(&self) -> &Theme {
+        &self.themes[self.theme_index]
     }
 
     pub fn next_theme(&mut self) {
-        self.theme_index = (self.theme_index + 1) % theme::THEMES.len();
+        self.theme_index = (self.theme_index + 1) % self.themes.len();
         self.persist_preferences();
     }
 

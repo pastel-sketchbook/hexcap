@@ -1,4 +1,5 @@
 use ratatui::style::Color;
+use std::io::Write;
 
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
@@ -506,6 +507,113 @@ pub fn is_system_light() -> bool {
 /// system appearance (Default Light index 8 vs Default Dark index 0).
 pub fn detect_initial_theme() -> usize {
     detect_ghostty_theme().unwrap_or_else(|| if is_system_light() { 8 } else { 0 })
+}
+
+/// Query the terminal background colour via OSC 11.
+///
+/// Sends `\x1b]11;?\x07` and reads back `\x1b]11;rgb:RRRR/GGGG/BBBB\x1b\\`
+/// (or BEL-terminated). Returns the RGB components as `(u8, u8, u8)`.
+/// Must be called while the terminal is in raw mode (or briefly enters raw mode).
+pub fn query_terminal_bg() -> Option<(u8, u8, u8)> {
+    use std::os::fd::AsRawFd;
+    use std::time::Duration;
+
+    let stdin = std::io::stdin();
+    let fd = stdin.as_raw_fd();
+
+    // Save and set raw mode manually via termios.
+    let mut orig: libc::termios = unsafe { std::mem::zeroed() };
+    if unsafe { libc::tcgetattr(fd, &mut orig) } != 0 {
+        return None;
+    }
+    let mut raw = orig;
+    raw.c_lflag &= !(libc::ICANON | libc::ECHO);
+    raw.c_cc[libc::VMIN] = 0;
+    raw.c_cc[libc::VTIME] = 1; // 100ms timeout per read
+    if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw) } != 0 {
+        return None;
+    }
+
+    // Send OSC 11 query.
+    let _ = std::io::stdout().write_all(b"\x1b]11;?\x07");
+    let _ = std::io::stdout().flush();
+
+    // Read response with timeout.
+    let deadline = std::time::Instant::now() + Duration::from_millis(200);
+    let mut buf = Vec::with_capacity(64);
+    let mut byte = [0u8; 1];
+    while std::time::Instant::now() < deadline {
+        let n = unsafe {
+            libc::read(fd, byte.as_mut_ptr().cast(), 1)
+        };
+        if n <= 0 {
+            if !buf.is_empty() {
+                break;
+            }
+            continue;
+        }
+        buf.push(byte[0]);
+        // Terminators: BEL (0x07) or ST (\x1b\\).
+        if byte[0] == 0x07 || (buf.len() >= 2 && buf[buf.len() - 2] == 0x1b && byte[0] == b'\\') {
+            break;
+        }
+    }
+
+    // Restore terminal.
+    unsafe { libc::tcsetattr(fd, libc::TCSANOW, &orig) };
+
+    // Parse: \x1b]11;rgb:RRRR/GGGG/BBBB<terminator>
+    let response = String::from_utf8_lossy(&buf);
+    let rgb_part = response.split("rgb:").nth(1)?;
+    let rgb_part = rgb_part.trim_end_matches(['\x07', '\\', '\x1b']);
+    let mut components = rgb_part.split('/');
+    let r = u16::from_str_radix(components.next()?.get(..2)?, 16).ok()? as u8;
+    let g = u16::from_str_radix(components.next()?.get(..2)?, 16).ok()? as u8;
+    let b = u16::from_str_radix(components.next()?.get(..2)?, 16).ok()? as u8;
+    Some((r, g, b))
+}
+
+/// Compute whether an RGB colour is perceptually light.
+fn is_light_bg(r: u8, g: u8, b: u8) -> bool {
+    // Relative luminance approximation.
+    let lum = 0.299 * f64::from(r) + 0.587 * f64::from(g) + 0.114 * f64::from(b);
+    lum > 128.0
+}
+
+/// Nudge an RGB component by `delta` (positive = lighter, negative = darker),
+/// clamped to 0..=255.
+fn nudge(c: u8, delta: i16) -> u8 {
+    (i16::from(c) + delta).clamp(0, 255) as u8
+}
+
+/// Patch the two Default themes (indices 0 and 8) so their `stripe_bg`,
+/// `panel_bg`, and `highlight_bg` are derived from the actual terminal
+/// background colour rather than hardcoded guesses.
+pub fn patch_default_themes(themes: &mut [Theme], r: u8, g: u8, b: u8) {
+    let light = is_light_bg(r, g, b);
+    // Stripe: very subtle shift from bg.
+    let stripe_d: i16 = if light { -8 } else { 6 };
+    // Panel: slightly more shift.
+    let panel_d: i16 = if light { -14 } else { 10 };
+    // Highlight: strong shift.
+    let highlight_d: i16 = if light { -30 } else { 20 };
+
+    let stripe = Color::Rgb(nudge(r, stripe_d), nudge(g, stripe_d), nudge(b, stripe_d));
+    let panel = Color::Rgb(nudge(r, panel_d), nudge(g, panel_d), nudge(b, panel_d));
+    let highlight = Color::Rgb(
+        nudge(r, highlight_d),
+        nudge(g, highlight_d),
+        nudge(b, highlight_d),
+    );
+
+    // Index 0 = Default (dark), Index 8 = Default Light.
+    for idx in [0, 8] {
+        if let Some(t) = themes.get_mut(idx) {
+            t.stripe_bg = stripe;
+            t.panel_bg = panel;
+            t.highlight_bg = highlight;
+        }
+    }
 }
 
 #[cfg(test)]
