@@ -409,6 +409,42 @@ fn handle_detail_key(app: &mut App, code: KeyCode) {
             app.set_status(msg);
         }
         KeyCode::Char('S') => app.open_stream(),
+        KeyCode::Char('E') => {
+            if app.agent_name.is_none() {
+                app.set_status("No agent connected — press A to open one".into());
+            } else if let Some(pkt) = app.selected_packet().cloned() {
+                let json = serde_json::to_string_pretty(&pkt).unwrap_or_default();
+                let prompt = format!(
+                    "Explain this packet in detail:\n```json\n{json}\n```"
+                );
+                app.chat_messages.push(crate::app::ChatMessage {
+                    sender: "you".into(),
+                    text: prompt.clone(),
+                });
+                app.pending_chat_send = Some(prompt);
+                app.show_agent_pane = true;
+                app.agent_scroll = 0;
+                app.set_status("Sent packet to agent for explanation".into());
+            } else {
+                app.set_status("No packet selected".into());
+            }
+        }
+        KeyCode::Char('A') => {
+            if app.agent_name.is_some() {
+                app.show_agent_pane = !app.show_agent_pane;
+            } else {
+                app.open_agent_picker();
+            }
+        }
+        KeyCode::Char('J') if app.show_agent_pane => {
+            app.agent_scroll = app.agent_scroll.saturating_sub(1);
+        }
+        KeyCode::Char('K') if app.show_agent_pane => {
+            let total = app.agent_output.lock().map_or(0, |o| o.len());
+            if app.agent_scroll < total {
+                app.agent_scroll += 1;
+            }
+        }
         _ => {}
     }
 }

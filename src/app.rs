@@ -780,6 +780,7 @@ impl App {
         if self.selected_packet().is_some() {
             self.view = View::Detail;
             self.hex_scroll = 0;
+            self.paused = true;
         }
     }
 
