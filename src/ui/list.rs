@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::UNIX_EPOCH;
 
 use ratatui::prelude::*;
@@ -5,7 +6,7 @@ use ratatui::text::Span;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 
 use crate::app::App;
-use crate::packet::{CapturedPacket, Protocol};
+use crate::packet::{CapturedPacket, FlowKey, Protocol};
 use crate::theme::Theme;
 
 use super::helpers::{highlight_style, stripe_style};
@@ -48,22 +49,47 @@ fn proto_color(proto: Protocol, theme: &Theme) -> Color {
     }
 }
 
+/// 8 distinct pastel flow colors for visual grouping.
+const FLOW_PALETTE: [Color; 8] = [
+    Color::Rgb(255, 150, 150), // rose
+    Color::Rgb(150, 200, 255), // sky
+    Color::Rgb(180, 255, 180), // mint
+    Color::Rgb(255, 210, 130), // peach
+    Color::Rgb(200, 170, 255), // lavender
+    Color::Rgb(130, 230, 220), // teal
+    Color::Rgb(255, 180, 220), // pink
+    Color::Rgb(220, 220, 140), // lime
+];
+
 /// Render the packet list table.
 pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     let header = table_header(theme);
+
+    let mut flow_map: HashMap<FlowKey, usize> = HashMap::new();
+    let mut next_color: usize = 0;
 
     let rows: Vec<Row> = app
         .packets
         .iter()
         .enumerate()
         .map(|(idx, p)| {
-            let color = proto_color(p.protocol, theme);
+            let proto_col = proto_color(p.protocol, theme);
+
+            // Assign a flow color.
+            let flow = FlowKey::new(&p.src, &p.dst);
+            let flow_idx = *flow_map.entry(flow).or_insert_with(|| {
+                let i = next_color;
+                next_color = (next_color + 1) % FLOW_PALETTE.len();
+                i
+            });
+            let flow_col = FLOW_PALETTE[flow_idx];
+
             Row::new(vec![
                 Cell::from(format!("{}", p.id)),
                 Cell::from(format_time(p)),
-                Cell::from(p.protocol.to_string()).style(Style::default().fg(color)),
-                Cell::from(p.src.clone()),
-                Cell::from(p.dst.clone()),
+                Cell::from(p.protocol.to_string()).style(Style::default().fg(proto_col)),
+                Cell::from(p.src.clone()).style(Style::default().fg(flow_col)),
+                Cell::from(p.dst.clone()).style(Style::default().fg(flow_col)),
                 Cell::from(format!("{}", p.length)),
             ])
             .style(stripe_style(idx, theme))

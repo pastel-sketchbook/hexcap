@@ -2,6 +2,22 @@ use std::collections::HashSet;
 use std::fmt;
 use std::time::SystemTime;
 
+/// A bidirectional flow key — normalizes direction so A<>B == B<>A.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FlowKey(pub String, pub String);
+
+impl FlowKey {
+    /// Create a normalized flow key from source and destination addresses.
+    #[must_use]
+    pub fn new(src: &str, dst: &str) -> Self {
+        if src <= dst {
+            Self(src.to_string(), dst.to_string())
+        } else {
+            Self(dst.to_string(), src.to_string())
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Protocol {
     Tcp,
