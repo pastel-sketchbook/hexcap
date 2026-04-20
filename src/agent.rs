@@ -129,44 +129,26 @@ pub fn resolve_binary(name: &str) -> Option<String> {
 /// terminal was detected (caller should fall back to full-screen).
 #[allow(dead_code)]
 pub fn open_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
-    use std::env;
+    let inner = format!("HEXCAP_SOCKET={socket_path} exec {agent_bin}");
 
-    // Wrap agent binary with HEXCAP_SOCKET env so it can send commands back.
-    let wrapped = format!("HEXCAP_SOCKET={socket_path} exec {agent_bin}");
-
-    let result = if env::var("TMUX").is_ok() {
-        Command::new("tmux")
+    if is_tmux() {
+        // Drop back to original user under sudo so the pane gets their PATH.
+        let wrapped = if let Ok(user) = std::env::var("SUDO_USER") {
+            format!("sudo -u {user} sh -c '{inner}'")
+        } else {
+            inner
+        };
+        match Command::new("tmux")
             .args(["split-window", "-h", "-l", "33%", "sh", "-c", &wrapped])
             .spawn()
-    } else if env::var("WEZTERM_PANE").is_ok() || env::var("WEZTERM_EXECUTABLE").is_ok() {
-        Command::new("wezterm")
-            .args([
-                "cli",
-                "split-pane",
-                "--right",
-                "--percent",
-                "60",
-                "--",
-                "sh",
-                "-c",
-                &wrapped,
-            ])
-            .spawn()
-    } else if env::var("ZELLIJ").is_ok() {
-        Command::new("zellij")
-            .args([
-                "action", "new-pane", "-d", "right", "--", "sh", "-c", &wrapped,
-            ])
-            .spawn()
+        {
+            Ok(_) => Ok(true),
+            Err(e) => Err(anyhow::anyhow!("tmux split failed: {e}")),
+        }
     } else if crate::ui::helpers::is_ghostty() {
-        return open_ghostty_split(agent_bin, socket_path);
+        open_ghostty_split(agent_bin, socket_path)
     } else {
-        return Ok(false);
-    };
-
-    match result {
-        Ok(_) => Ok(true),
-        Err(e) => Err(anyhow::anyhow!("Failed to open split: {e}")),
+        Ok(false)
     }
 }
 
@@ -174,10 +156,17 @@ pub fn open_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
 ///
 /// Returns `Ok(true)` if tmux is available and the split was opened.
 pub fn open_tmux_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
-    if std::env::var("TMUX").is_err() {
+    if !is_tmux() {
         return Ok(false);
     }
-    let wrapped = format!("HEXCAP_SOCKET={socket_path} exec {agent_bin}");
+    // When running under sudo, drop back to the original user so the tmux
+    // pane runs in their session with their PATH (where opencode lives).
+    let inner = format!("HEXCAP_SOCKET={socket_path} exec {agent_bin}");
+    let wrapped = if let Ok(user) = std::env::var("SUDO_USER") {
+        format!("sudo -u {user} sh -c '{inner}'")
+    } else {
+        inner
+    };
     match Command::new("tmux")
         .args(["split-window", "-h", "-l", "33%", "sh", "-c", &wrapped])
         .spawn()
@@ -185,6 +174,22 @@ pub fn open_tmux_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
         Ok(_) => Ok(true),
         Err(e) => Err(anyhow::anyhow!("tmux split failed: {e}")),
     }
+}
+
+/// Detect if we're running inside tmux.
+///
+/// Checks `TMUX` env var first, then falls back to `tmux list-sessions`
+/// (works under `sudo` where env vars are stripped).
+pub fn is_tmux() -> bool {
+    if std::env::var("TMUX").is_ok() {
+        return true;
+    }
+    Command::new("tmux")
+        .args(["list-sessions"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 /// Open an agent in a Ghostty split pane (right side) via AppleScript.

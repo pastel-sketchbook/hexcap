@@ -444,7 +444,12 @@ pub fn run_loop(
                             };
                             let use_ghostty = match preset.spawn_mode {
                                 agent::SpawnMode::Ghostty => true,
-                                agent::SpawnMode::Split => crate::ui::helpers::is_ghostty(),
+                                agent::SpawnMode::Split => {
+                                    // tmux takes priority — TMUX env is definitive,
+                                    // while is_ghostty() pgrep fallback can false-positive
+                                    // when Ghostty runs alongside another terminal.
+                                    if agent::is_tmux() { false } else { crate::ui::helpers::is_ghostty() }
+                                }
                                 _ => false,
                             };
                             let split_result = if use_ghostty {
