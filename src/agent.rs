@@ -9,6 +9,8 @@
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
+use std::os::fd::FromRawFd;
+use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -72,21 +74,21 @@ pub struct AgentPreset {
 pub const AGENT_PRESETS: &[AgentPreset] = &[
     AgentPreset {
         name: "Copilot",
-        command_template: "copilot -p {prompt} --allow-all-tools",
+        command_template: "copilot",
         binary: "copilot",
         description: "GitHub Copilot CLI",
         spawn_mode: SpawnMode::Prompt,
     },
     AgentPreset {
         name: "OpenCode",
-        command_template: "opencode run {prompt}",
+        command_template: "opencode",
         binary: "opencode",
         description: "OpenCode coding agent",
         spawn_mode: SpawnMode::Prompt,
     },
     AgentPreset {
         name: "Gemini",
-        command_template: "gemini -p {prompt} -o text",
+        command_template: "gemini",
         binary: "gemini",
         description: "Google Gemini CLI",
         spawn_mode: SpawnMode::Prompt,
@@ -96,7 +98,7 @@ pub const AGENT_PRESETS: &[AgentPreset] = &[
         command_template: "amp",
         binary: "amp",
         description: "Amp coding agent",
-        spawn_mode: SpawnMode::Split,
+        spawn_mode: SpawnMode::Prompt,
     },
 ];
 
@@ -177,6 +179,7 @@ end tell"#
 }
 
 /// Build the agent analysis prompt, referencing the pcap snapshot file.
+#[allow(dead_code)]
 pub fn build_prompt(pcap_path: &str, packet_count: usize) -> String {
     format!(
         "You have the hexcap skill. Use `hexcap read {pcap_path}`, `hexcap flows {pcap_path}`, \
@@ -187,6 +190,7 @@ pub fn build_prompt(pcap_path: &str, packet_count: usize) -> String {
 }
 
 /// Expand a command template, replacing `{prompt}` and `{pcap}` placeholders.
+#[allow(dead_code)]
 pub fn expand_command(template: &str, pcap_path: &str, packet_count: usize) -> String {
     let prompt = build_prompt(pcap_path, packet_count);
     // Shell-quote the prompt (single quotes, escape inner single quotes).
@@ -466,6 +470,8 @@ pub fn new_output() -> AgentOutput {
 pub struct AgentPipe {
     child: Child,
     stdin: Option<std::process::ChildStdin>,
+    /// PTY master file descriptor (used instead of stdin when spawned via PTY).
+    pty_master: Option<std::fs::File>,
     _output: AgentOutput,
 }
 
@@ -491,6 +497,7 @@ impl AgentPipe {
         Ok(Self {
             child,
             stdin,
+            pty_master: None,
             _output: output,
         })
     }
@@ -499,6 +506,7 @@ impl AgentPipe {
     ///
     /// The agent receives its context via CLI args (referencing a pcap file)
     /// and uses `hexcap` subcommands to analyze it. Stdin is closed immediately.
+    #[allow(dead_code)]
     pub fn spawn_prompt(cmd: &str, output: AgentOutput, commands: &AgentCommands) -> Result<Self> {
         let mut child = Command::new("sh")
             .args(["-c", cmd])
@@ -535,6 +543,165 @@ impl AgentPipe {
         Ok(Self {
             child,
             stdin: None,
+            pty_master: None,
+            _output: output,
+        })
+    }
+
+    /// Spawn an agent in an interactive PTY so it stays alive for chat.
+    ///
+    /// The agent runs inside a pseudo-terminal, receiving its initial prompt
+    /// via the command string. The PTY keeps the agent alive and interactive.
+    /// Output is read from the PTY master and displayed in the agent pane.
+    pub fn spawn_pty(
+        cmd: &str,
+        output: AgentOutput,
+        commands: &AgentCommands,
+        socket_path: Option<&str>,
+    ) -> Result<Self> {
+        // SAFETY: openpty allocates a new PTY pair. Both fds are valid after
+        // a successful return. We zero-init the fd variables.
+        let (master_fd, slave_fd) = unsafe {
+            let mut master: libc::c_int = 0;
+            let mut slave: libc::c_int = 0;
+            let ret = libc::openpty(
+                &raw mut master,
+                &raw mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+            if ret != 0 {
+                anyhow::bail!("openpty failed: {}", std::io::Error::last_os_error());
+            }
+            (master, slave)
+        };
+
+        // Wrap master fd in a File for reading/writing.
+        // SAFETY: master_fd is a valid open file descriptor from openpty.
+        let master_file = unsafe { std::fs::File::from_raw_fd(master_fd) };
+
+        // Resolve the real user's uid/gid from SUDO_UID/SUDO_GID so the agent
+        // runs as the invoking user, not root.
+        let sudo_uid = std::env::var("SUDO_UID")
+            .ok()
+            .and_then(|v| v.parse::<libc::uid_t>().ok());
+        let sudo_gid = std::env::var("SUDO_GID")
+            .ok()
+            .and_then(|v| v.parse::<libc::gid_t>().ok());
+        let sudo_user = std::env::var("SUDO_USER").ok();
+
+        // Build the command: wrap in a login shell so the user's PATH is available.
+        let shell = sudo_user
+            .as_ref()
+            .and_then(|u| {
+                // Look up the user's login shell from the passwd database.
+                // SAFETY: getpwnam is safe with a valid C string.
+                let c_user = std::ffi::CString::new(u.as_str()).ok()?;
+                let pw = unsafe { libc::getpwnam(c_user.as_ptr()) };
+                if pw.is_null() {
+                    None
+                } else {
+                    let shell = unsafe { std::ffi::CStr::from_ptr((*pw).pw_shell) };
+                    shell.to_str().ok().map(String::from)
+                }
+            })
+            .unwrap_or_else(|| "/bin/zsh".to_string());
+
+        // Use `exec` so the agent replaces the shell process.
+        let wrapped_cmd = format!("exec {cmd}");
+
+        // Build env: set HEXCAP_SOCKET if provided, inherit HOME for the real user.
+        let mut command = Command::new(&shell);
+        command.args(["-l", "-c", &wrapped_cmd]);
+        if let Some(ref path) = socket_path {
+            command.env("HEXCAP_SOCKET", path);
+        }
+        if let Some(ref user) = sudo_user {
+            // Resolve home directory for the real user.
+            if let Ok(home) = std::env::var("SUDO_USER") {
+                let _ = home; // already have user
+                // Set HOME from passwd entry or fall back to /Users/<user> on macOS.
+                let home_dir = sudo_user
+                    .as_ref()
+                    .map(|u| format!("/Users/{u}"))
+                    .unwrap_or_default();
+                if !home_dir.is_empty() {
+                    command.env("HOME", &home_dir);
+                }
+            }
+            command.env("USER", user);
+            command.env("LOGNAME", user);
+        }
+
+        // Spawn the child with the slave PTY as stdin/stdout/stderr.
+        // SAFETY: pre_exec runs in the child after fork. We call setsid to
+        // create a new session, drop privileges if under sudo, then set the
+        // controlling terminal via ioctl TIOCSCTTY.
+        let child = unsafe {
+            command
+                .stdin(Stdio::from_raw_fd(slave_fd))
+                .stdout(Stdio::from_raw_fd(slave_fd))
+                .stderr(Stdio::from_raw_fd(slave_fd))
+                .pre_exec(move || {
+                    libc::setsid();
+                    // Drop privileges to the real user if running under sudo.
+                    if let Some(gid) = sudo_gid {
+                        libc::setgid(gid);
+                    }
+                    if let Some(uid) = sudo_uid {
+                        libc::setuid(uid);
+                    }
+                    // Set controlling terminal.
+                    libc::ioctl(slave_fd, libc::TIOCSCTTY.into(), 0);
+                    Ok(())
+                })
+                .spawn()
+                .with_context(|| format!("failed to spawn PTY agent: {cmd}"))?
+        };
+
+        // Close the slave fd in the parent — the child owns it now.
+        // SAFETY: slave_fd is a valid fd; closing it in the parent is correct.
+        unsafe { libc::close(slave_fd) };
+
+        // Start a reader thread on the master fd.
+        let reader_file = master_file
+            .try_clone()
+            .context("failed to clone PTY master for reader")?;
+        let out = Arc::clone(&output);
+        let cmds = Arc::clone(commands);
+        thread::Builder::new()
+            .name("agent-pty-reader".into())
+            .spawn(move || {
+                let mut reader = BufReader::new(reader_file);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            let trimmed = line.trim_end_matches('\n').trim_end_matches('\r');
+                            if let Some(cmd) = parse_command(trimmed) {
+                                if let Ok(mut q) = cmds.lock() {
+                                    q.push_back(cmd);
+                                }
+                            } else {
+                                let mut buf = out.lock().expect("agent output mutex poisoned");
+                                if buf.len() >= AGENT_OUTPUT_MAX {
+                                    buf.pop_front();
+                                }
+                                buf.push_back(strip_ansi(trimmed));
+                            }
+                        }
+                    }
+                }
+            })
+            .ok();
+
+        Ok(Self {
+            child,
+            stdin: None,
+            pty_master: Some(master_file),
             _output: output,
         })
     }
@@ -571,9 +738,13 @@ impl AgentPipe {
         }
     }
 
-    /// Write a JSONL line (packet) to the child's stdin.
+    /// Write a JSONL line (packet) to the child's stdin or PTY master.
     pub fn send(&mut self, json_line: &str) {
-        if let Some(ref mut stdin) = self.stdin {
+        if let Some(ref mut master) = self.pty_master {
+            let _ = master.write_all(json_line.as_bytes());
+            let _ = master.write_all(b"\n");
+            let _ = master.flush();
+        } else if let Some(ref mut stdin) = self.stdin {
             let _ = stdin.write_all(json_line.as_bytes());
             let _ = stdin.write_all(b"\n");
             let _ = stdin.flush();

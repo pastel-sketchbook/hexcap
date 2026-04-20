@@ -431,84 +431,69 @@ pub fn run_loop(
                         ));
                     }
                 } else {
-                    // Prompt mode: snapshot packets, spawn non-interactively.
-                    let pkt_count = a.packets.len();
-                    let snapshot_path = std::env::temp_dir().join(format!(
-                        "hexcap_agent_{}.pcap",
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs()
-                    ));
-                    let packets_ref: Vec<&crate::packet::CapturedPacket> =
-                        a.packets.iter().collect();
-                    let snapshot_ok =
-                        crate::export::write_pcap(&snapshot_path, &packets_ref).is_ok();
+                    // PTY mode: launch agent as interactive TUI in the agent pane.
+                    let cmd = preset.command_template;
+                    a.set_status(format!("Spawning {}...", preset.name));
+                    if let Ok(mut buf) = agent_output.lock() {
+                        buf.clear();
+                    }
 
-                    if snapshot_ok {
-                        let pcap_str = snapshot_path.to_string_lossy();
-                        let cmd =
-                            agent::expand_command(preset.command_template, &pcap_str, pkt_count);
-                        a.set_status(format!("Spawning {}...", preset.name));
-                        if let Ok(mut buf) = agent_output.lock() {
-                            buf.clear();
-                        }
-                        match agent::AgentPipe::spawn_prompt(
-                            &cmd,
-                            Arc::clone(agent_output),
+                    // Ensure a socket exists so the agent can connect back.
+                    let sock_path = if let Some(ref srv) = *socket_server {
+                        srv.path().to_string()
+                    } else {
+                        let path = agent::default_socket_path();
+                        match agent::SocketServer::bind(
+                            &path,
                             agent_commands,
+                            agent_queries,
+                            stamped_commands,
+                            a.max_packets,
                         ) {
-                            Ok(pipe) => {
-                                *agent_pipe = Some(pipe);
-                                a.show_agent_pane = true;
-                                a.agent_name = Some(preset.name.to_string());
-                                a.agent_scroll = 0;
-                                a.set_status(format!("Agent: {}", preset.name));
+                            Ok(srv) => {
+                                *socket_server = Some(srv);
+                                a.socket_path = Some(path.clone());
+                                path
                             }
                             Err(e) => {
-                                a.set_status(format!("Agent failed: {e}"));
+                                a.set_status(format!("Socket failed: {e}"));
+                                String::new()
                             }
                         }
-                    } else {
-                        a.set_status("Failed to snapshot packets for agent".into());
-                    }
-                }
-            }
-        }
-
-        // Check for on-demand socket creation (X key).
-        {
-            let mut a = app.lock().expect("app mutex poisoned");
-            if a.pending_socket_create {
-                a.pending_socket_create = false;
-                if let Some(ref srv) = *socket_server {
-                    let path = srv.path().to_string();
-                    a.socket_path = Some(path.clone());
-                    let msg = match crate::clipboard::copy_to_clipboard(&path) {
-                        Ok(()) => format!("Socket copied: {path}"),
-                        Err(_) => format!("Socket: {path}"),
                     };
-                    a.set_status(msg);
-                } else {
-                    let path = agent::default_socket_path();
-                    match agent::SocketServer::bind(
-                        &path,
+
+                    // Pass socket path as env var so the agent can discover it.
+                    let env_socket = if sock_path.is_empty() {
+                        None
+                    } else {
+                        Some(sock_path.clone())
+                    };
+
+                    match agent::AgentPipe::spawn_pty(
+                        cmd,
+                        Arc::clone(agent_output),
                         agent_commands,
-                        agent_queries,
-                        stamped_commands,
-                        a.max_packets,
+                        env_socket.as_deref(),
                     ) {
-                        Ok(srv) => {
-                            *socket_server = Some(srv);
-                            a.socket_path = Some(path.clone());
-                            let msg = match crate::clipboard::copy_to_clipboard(&path) {
-                                Ok(()) => format!("Socket copied: {path}"),
-                                Err(_) => format!("Socket: {path}"),
-                            };
-                            a.set_status(msg);
+                        Ok(pipe) => {
+                            if !sock_path.is_empty() {
+                                let _ = crate::clipboard::copy_to_clipboard(&sock_path);
+                            }
+                            *agent_pipe = Some(pipe);
+                            a.show_agent_pane = true;
+                            a.agent_name = Some(preset.name.to_string());
+                            a.agent_scroll = 0;
+                            if sock_path.is_empty() {
+                                a.set_status(format!("Agent: {}", preset.name));
+                            } else {
+                                a.set_status(format!(
+                                    "Agent: {} (socket: {sock_path})",
+                                    preset.name
+                                ));
+                            }
                         }
                         Err(e) => {
-                            a.set_status(format!("Socket failed: {e}"));
+                            a.set_status(format!("Agent failed: {e}"));
                         }
                     }
                 }

@@ -234,8 +234,6 @@ pub struct App {
     pub agent_commands: crate::agent::AgentCommands,
     /// Set to `Some(preset_index)` when user picks an agent; main loop consumes it.
     pub pending_agent_spawn: Option<usize>,
-    /// Set to `true` when user requests on-demand socket creation; main loop consumes it.
-    pub pending_socket_create: bool,
     /// Socket path (when active) for display in status/footer.
     pub socket_path: Option<String>,
 
@@ -387,7 +385,6 @@ impl App {
             agent_name: None,
             agent_commands: crate::agent::new_commands(),
             pending_agent_spawn: None,
-            pending_socket_create: false,
             socket_path: None,
             goto_buf: String::new(),
         }

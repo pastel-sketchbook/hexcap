@@ -56,9 +56,9 @@ src/
                   handle_mouse)
   event_loop.rs — main event loop (run_loop), agent command execution
                   (execute_agent_command)
-  agent.rs      — AgentPipe (child process JSONL feed), SpawnMode (Prompt/Split),
+  agent.rs      — AgentPipe (PTY-based child process), SpawnMode (Prompt/Split),
                   AgentPreset with command_template/binary/spawn_mode,
-                  spawn_prompt() for non-interactive agents, open_split() for
+                  spawn_pty() for interactive PTY agents, open_split() for
                   terminal split pane agents (Ghostty/tmux/WezTerm/Zellij),
                   SocketServer (UDS broadcast + bidirectional @@HEXCAP: read),
                   strip_ansi(), resolve_binary(), expand_command(), build_prompt()
@@ -154,9 +154,9 @@ and their light variants.
 - **Bookmark persistence**: Bookmarks saved to `.pcap.bookmarks` sidecar files alongside pcap exports.
 - **Multi-interface capture**: `-i en0,lo0` comma-separated interface list; spawns one capture thread per interface.
 - **Headless/JSON mode**: CLI subcommands (`read`, `capture`, `flows`, `stats`, `stream`, `decode`, `interfaces`) bypass the TUI and emit JSON (array or JSONL) to stdout for agent/pipeline consumption. The `--json` flag on the root CLI provides the same headless output for `--read` (JSON array) and live capture (JSONL, bounded by `--max-packets`).
-- **Agent pipe/socket**: `--pipe "command"` spawns a child process, feeds JSONL packets to its stdin, and displays stdout in a bottom split pane. `--socket /path/to/sock` creates a Unix domain socket broadcasting JSONL to all connected clients. `A` toggles agent pane visibility; `J`/`K` scroll the pane. `X` creates socket on demand, copies path to clipboard.
-- **Agent spawn modes**: Prompt mode (`spawn_prompt`) for non-interactive agents (Copilot `-p`, OpenCode `run`, Gemini `-p`); split mode (`open_split`) for TUI agents (Amp) via Ghostty AppleScript, tmux, WezTerm, or Zellij terminal splits.
-- **Agent picker**: `A` key (with no active agent) opens a picker to select from 4 built-in agents: Copilot, OpenCode, Gemini, Amp. Selected agent is spawned in its configured mode. Duplicate spawns prevented — shows socket path if agent already active.
+- **Agent pipe/socket**: `--pipe "command"` spawns a child process in a PTY, feeds JSONL packets to the PTY master, and displays output in a bottom split pane. `--socket /path/to/sock` creates a Unix domain socket broadcasting JSONL to all connected clients. `A` toggles agent pane visibility; `J`/`K` scroll the pane. Socket is auto-created when spawning an agent via `A` key; path is copied to clipboard and broadcast to the agent.
+- **Agent spawn modes**: PTY mode (`spawn_pty`) for interactive TUI agents (Copilot, OpenCode, Gemini, Amp) — agents run as full TUIs inside a pseudo-terminal in the agent pane and stay alive for ongoing interaction; split mode (`open_split`) for agents in a terminal split pane via Ghostty AppleScript, tmux, WezTerm, or Zellij.
+- **Agent picker**: `A` key (with no active agent) opens a picker to select from 4 built-in agents: Copilot, OpenCode, Gemini, Amp. All agents spawn as interactive TUIs in a PTY within the agent pane. Duplicate spawns prevented — shows socket path if agent already active.
 - **Agent markdown/ANSI**: Agent output is ANSI-stripped (`strip_ansi()`) and rendered as markdown via `tui-markdown` in the agent pane.
 - **Draggable agent pane**: Mouse drag on agent pane border resizes between 20%-80%; `agent_pane_ratio` and `agent_pane_dragging` fields in App.
 - **Bidirectional socket**: `SocketServer::bind` accepts `&AgentCommands` and `&AgentQueries` for reading commands and queries from connected clients. Per-client IDs for directed response routing. Socket permissions `0o700`; randomized filename; `chown` to `SUDO_UID:SUDO_GID`; per-client replay buffer. Auto-created for split agents with `HEXCAP_SOCKET` env var.

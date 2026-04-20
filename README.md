@@ -56,10 +56,10 @@ terminal.
 - **Help overlay** — `?` shows all keybindings in a popup
 - **Vim keybindings** — j/k, g/G, d/u, Enter, Esc, /
 - **Headless/JSON mode** — CLI subcommands and `--json` flag for agent/pipeline consumption
-- **Agent pipe** — `--pipe "command"` spawns a child, feeds JSONL to stdin, displays stdout in a bottom split pane
+- **Agent pipe** — `--pipe "command"` spawns a child in a PTY, feeds JSONL to PTY master, displays output in a bottom split pane
 - **Agent socket** — `--socket /path` creates a Unix domain socket broadcasting JSONL to all connected clients
 - **Agent picker** — `A` key opens picker to select from Copilot, OpenCode, Gemini, Amp agents
-- **Agent spawn modes** — prompt mode (non-interactive CLI) for Copilot/OpenCode/Gemini; split mode (terminal split pane) for Amp
+- **Agent spawn modes** — PTY mode (interactive TUI) for all agents in the agent pane; split mode (terminal split pane) via Ghostty/tmux/WezTerm/Zellij
 - **Agent markdown rendering** — agent output rendered as markdown in the TUI pane via `tui-markdown`
 - **Agent ANSI stripping** — ANSI escape sequences stripped from agent output before display
 - **Draggable agent pane** — mouse drag on pane border resizes (20%-80% range)
@@ -164,7 +164,7 @@ sudo hexcap --json -i en0 --max-packets 200
 ### Socket Query Protocol
 
 External agents can connect to the Unix domain socket (created via `--socket`,
-`X` key, or automatically for split agents) and send queries to request data:
+`A` key agent spawn, or automatically for split agents) and send queries to request data:
 
 ```sh
 # Connect and query flows
@@ -252,7 +252,6 @@ Reply messages arrive as: `{"type":"reply","from":"copilot","request_id":"a1","m
 | `R`            | Toggle time reference on packet |
 | `:`            | Go to packet by number       |
 | `A`            | Agent picker / toggle pane    |
-| `X`            | Create socket / show path    |
 | `J` / `K`     | Scroll agent pane down/up    |
 | `?`            | Show keybindings help        |
 | `t`            | Cycle theme                  |
