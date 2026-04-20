@@ -7,6 +7,7 @@ use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 
 use crate::app::App;
 use crate::dns;
+use crate::geoip;
 use crate::packet::{CapturedPacket, FlowKey, Protocol};
 use crate::theme::Theme;
 
@@ -131,16 +132,20 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
                 (false, false) => format!("{}", p.id),
             };
 
-            let src_display = if app.dns_enabled {
+            let mut src_display = if app.dns_enabled {
                 dns::resolve_display(&p.src, &app.dns_cache)
             } else {
                 p.src.clone()
             };
-            let dst_display = if app.dns_enabled {
+            let mut dst_display = if app.dns_enabled {
                 dns::resolve_display(&p.dst, &app.dns_cache)
             } else {
                 p.dst.clone()
             };
+            if app.geoip_enabled {
+                src_display = geoip::geo_display(&src_display, &app.geoip_cache);
+                dst_display = geoip::geo_display(&dst_display, &app.geoip_cache);
+            }
 
             Row::new(vec![
                 Cell::from(id_label),

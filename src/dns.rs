@@ -75,7 +75,7 @@ fn reverse_lookup(ip: IpAddr) -> Option<String> {
 }
 
 /// Extract the IP portion from an address string like `1.2.3.4:80` or `[::1]:80`.
-fn extract_ip(addr: &str) -> Option<IpAddr> {
+pub fn extract_ip(addr: &str) -> Option<IpAddr> {
     if let Some(rest) = addr.strip_prefix('[') {
         // [ipv6]:port
         let ip_str = rest.split(']').next()?;

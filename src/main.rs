@@ -4,6 +4,7 @@ mod clipboard;
 mod config;
 mod dns;
 mod export;
+mod geoip;
 mod hex;
 mod packet;
 mod process;
@@ -55,6 +56,10 @@ struct Cli {
     /// Read packets from a pcap file instead of live capture
     #[arg(short, long)]
     read: Option<String>,
+
+    /// Path to `GeoLite2-City.mmdb` or `GeoLite2-Country.mmdb` for `GeoIP` lookups
+    #[arg(long)]
+    geoip: Option<String>,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -92,6 +97,25 @@ fn main() -> Result<()> {
         process_filter,
         cli.write.map(std::path::PathBuf::from),
     )));
+
+    // Load GeoIP database if provided.
+    let geoip_db = if let Some(ref path) = cli.geoip {
+        match geoip::GeoDb::open(std::path::Path::new(path)) {
+            Ok(db) => {
+                if let Ok(mut a) = app.lock() {
+                    a.geoip_enabled = true;
+                    a.set_status("GeoIP database loaded".into());
+                }
+                Some(Arc::new(db))
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load GeoIP database: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // Either read from pcap file or start live capture.
     let (mut capture, capture_group) = if let Some(ref path) = cli.read {
@@ -177,7 +201,13 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_loop(&mut terminal, &app, &mut capture, bpf_filter.as_deref());
+    let result = run_loop(
+        &mut terminal,
+        &app,
+        &mut capture,
+        bpf_filter.as_deref(),
+        geoip_db.as_ref(),
+    );
 
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
@@ -192,6 +222,7 @@ fn run_loop(
     app: &Arc<Mutex<App>>,
     capture: &mut Option<CaptureHandle>,
     bpf_filter: Option<&str>,
+    geoip_db: Option<&Arc<geoip::GeoDb>>,
 ) -> Result<()> {
     let mut refresh_counter: u32 = 0;
     let mut dns_counter: u32 = 0;
@@ -242,6 +273,21 @@ fn run_loop(
                 drop(app_guard);
                 dns::resolve_batch(addrs, existing, app_clone);
             } else {
+                // GeoIP resolution (cheap, in-line).
+                if app_guard.geoip_enabled
+                    && let Some(db) = geoip_db
+                {
+                    let ips: Vec<std::net::IpAddr> = app_guard
+                        .packets
+                        .iter()
+                        .flat_map(|p| {
+                            [&p.src, &p.dst]
+                                .into_iter()
+                                .filter_map(|a| dns::extract_ip(a))
+                        })
+                        .collect();
+                    geoip::resolve_batch(db, &ips, &mut app_guard.geoip_cache);
+                }
                 terminal.draw(|f| ui::render(f, &app_guard))?;
                 drop(app_guard);
             }

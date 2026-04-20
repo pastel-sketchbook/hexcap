@@ -146,6 +146,10 @@ pub struct App {
     pub dns_cache: HashMap<std::net::IpAddr, String>,
     pub dns_enabled: bool,
 
+    // -- GeoIP cache --
+    pub geoip_cache: HashMap<std::net::IpAddr, String>,
+    pub geoip_enabled: bool,
+
     // -- TCP stream follow --
     /// Reassembled TCP stream payload for the current flow.
     pub stream_data: Vec<u8>,
@@ -258,6 +262,8 @@ impl App {
             pps: 0,
             dns_cache: HashMap::new(),
             dns_enabled: false,
+            geoip_cache: HashMap::new(),
+            geoip_enabled: false,
             stream_data: Vec::new(),
             stream_scroll: 0,
             resize_column: 0,
