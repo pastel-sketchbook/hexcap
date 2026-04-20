@@ -4,10 +4,12 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::config;
+use crate::expert::Severity;
 use crate::packet::{
     CapturedPacket, FlowKey, Protocol, extract_tcp_payload, matches_display_filter,
 };
 use crate::process::ProcessInfo;
+use crate::tcp_analysis::TcpAnalyser;
 use crate::theme::{self, Theme};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,10 +166,10 @@ pub struct App {
     pub stream_scroll: u16,
 
     // -- Column widths --
-    /// Index of the column currently being resized (0-5).
+    /// Index of the column currently being resized (0-6).
     pub resize_column: usize,
     /// Extra width adjustments per column.
-    pub column_widths: [i16; 6],
+    pub column_widths: [i16; 7],
 
     // -- Help overlay --
     pub show_help: bool,
@@ -180,6 +182,12 @@ pub struct App {
     pub diff_mark: Option<u64>,
     /// When set, show diff overlay comparing these two packet indices.
     pub diff_pair: Option<(usize, usize)>,
+
+    // -- TCP analysis --
+    pub tcp_analyser: TcpAnalyser,
+
+    // -- Expert info overlay --
+    pub show_expert: bool,
 }
 
 /// Aggregated info for a single bidirectional flow.
@@ -278,11 +286,13 @@ impl App {
             stream_data: Vec::new(),
             stream_scroll: 0,
             resize_column: 0,
-            column_widths: [0; 6],
+            column_widths: [0; 7],
             show_help: false,
             show_stats_summary: false,
             diff_mark: None,
             diff_pair: None,
+            tcp_analyser: TcpAnalyser::new(),
+            show_expert: false,
         }
     }
 
@@ -442,13 +452,17 @@ impl App {
 
     // -- Packets -------------------------------------------------------------
 
-    pub fn push_packet(&mut self, pkt: CapturedPacket) {
+    pub fn push_packet(&mut self, mut pkt: CapturedPacket) {
         if self.paused {
             return;
         }
         self.total_bytes += pkt.length as u64;
         self.current_window_bytes += pkt.length as u64;
         self.pps_counter += 1;
+
+        // Run TCP sequence analysis.
+        let expert_items = self.tcp_analyser.analyse(&pkt);
+        pkt.expert = expert_items;
 
         // Update flow tracking.
         let flow = FlowKey::new(&pkt.src, &pkt.dst);
@@ -574,6 +588,7 @@ impl App {
         self.flow_map.clear();
         self.flow_selected = 0;
         self.flow_filter = None;
+        self.tcp_analyser = TcpAnalyser::new();
     }
 
     // -- Flow view -----------------------------------------------------------
@@ -663,7 +678,7 @@ impl App {
     // -- Column resizing -----------------------------------------------------
 
     pub fn next_resize_column(&mut self) {
-        self.resize_column = (self.resize_column + 1) % 6;
+        self.resize_column = (self.resize_column + 1) % 7;
     }
 
     pub fn widen_column(&mut self) {
@@ -888,6 +903,11 @@ impl App {
 
     pub fn scroll_up(&mut self) {
         self.hex_scroll = self.hex_scroll.saturating_sub(1);
+    }
+
+    /// Get the highest severity expert item for a packet, if any.
+    pub fn max_severity(pkt: &CapturedPacket) -> Option<Severity> {
+        pkt.expert.iter().map(|e| e.severity).max()
     }
 
     pub fn selected_packet(&self) -> Option<&CapturedPacket> {

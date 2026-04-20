@@ -4,6 +4,8 @@ use std::time::SystemTime;
 
 use serde::Serialize;
 
+use crate::expert::ExpertItem;
+
 /// A bidirectional flow key — normalizes direction so A<>B == B<>A.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct FlowKey(pub String, pub String);
@@ -63,6 +65,9 @@ pub struct CapturedPacket {
     pub decoded: Vec<DecodedField>,
     /// Raw TCP flags byte (SYN=0x02, RST=0x04, FIN=0x01, etc.). Zero for non-TCP.
     pub tcp_flags: u8,
+    /// Expert information items (TCP analysis, anomaly detection, etc.).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub expert: Vec<ExpertItem>,
 }
 
 /// A decoded header field for display in the detail view.
@@ -111,6 +116,7 @@ pub fn parse_packet(id: u64, data: &[u8]) -> CapturedPacket {
             data: data.to_vec(),
             decoded: vec![],
             tcp_flags: 0,
+            expert: vec![],
         };
     }
 
@@ -130,6 +136,7 @@ pub fn parse_packet(id: u64, data: &[u8]) -> CapturedPacket {
                 data: data.to_vec(),
                 decoded,
                 tcp_flags: 0,
+                expert: vec![],
             }
         }
         0x0800 => parse_ipv4(id, timestamp, data, length),
@@ -145,6 +152,7 @@ pub fn parse_packet(id: u64, data: &[u8]) -> CapturedPacket {
             data: data.to_vec(),
             decoded: vec![field("EtherType", format!("0x{ethertype:04X}"))],
             tcp_flags: 0,
+            expert: vec![],
         },
     }
 }
@@ -161,6 +169,7 @@ fn parse_ipv4(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
             data: data.to_vec(),
             decoded: vec![],
             tcp_flags: 0,
+            expert: vec![],
         };
     }
 
@@ -226,6 +235,7 @@ fn parse_ipv4(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
         data: data.to_vec(),
         decoded,
         tcp_flags,
+        expert: vec![],
     }
 }
 
@@ -250,6 +260,7 @@ fn parse_ipv6(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
             data: data.to_vec(),
             decoded: vec![],
             tcp_flags: 0,
+            expert: vec![],
         };
     }
 
@@ -316,6 +327,7 @@ fn parse_ipv6(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
         data: data.to_vec(),
         decoded,
         tcp_flags,
+        expert: vec![],
     }
 }
 

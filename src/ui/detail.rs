@@ -3,6 +3,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
 use crate::app::App;
+use crate::expert;
 use crate::hex;
 use crate::theme::Theme;
 
@@ -60,13 +61,14 @@ pub fn draw_decoded_fields(frame: &mut Frame, app: &App, theme: &Theme, area: Re
     let label_style = Style::default().fg(theme.accent);
 
     let lines: Vec<Line> = if let Some(pkt) = app.selected_packet() {
-        if pkt.decoded.is_empty() {
+        if pkt.decoded.is_empty() && pkt.expert.is_empty() {
             vec![Line::from(Span::styled(
                 "No decoded fields",
                 Style::default().fg(theme.muted),
             ))]
         } else {
-            pkt.decoded
+            let mut lines: Vec<Line> = pkt
+                .decoded
                 .iter()
                 .map(|f| {
                     Line::from(vec![
@@ -74,7 +76,29 @@ pub fn draw_decoded_fields(frame: &mut Frame, app: &App, theme: &Theme, area: Re
                         Span::raw(&f.value),
                     ])
                 })
-                .collect()
+                .collect();
+            // Append expert items with severity coloring.
+            if !pkt.expert.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "── Expert Info ──",
+                    Style::default().fg(theme.muted),
+                )));
+                for item in &pkt.expert {
+                    let sev_color = expert::severity_color(item.severity);
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!(" {} ", expert::severity_symbol(item.severity)),
+                            Style::default().fg(sev_color).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            format!("[{}] ", item.severity),
+                            Style::default().fg(sev_color),
+                        ),
+                        Span::raw(&item.summary),
+                    ]));
+                }
+            }
+            lines
         }
     } else {
         vec![]

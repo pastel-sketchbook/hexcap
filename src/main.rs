@@ -3,12 +3,14 @@ mod capture;
 mod clipboard;
 mod config;
 mod dns;
+mod expert;
 mod export;
 mod geoip;
 mod headless;
 mod hex;
 mod packet;
 mod process;
+mod tcp_analysis;
 mod theme;
 mod ui;
 
@@ -537,6 +539,15 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         return false;
     }
 
+    // Expert info overlay.
+    if app.show_expert {
+        match code {
+            KeyCode::Esc | KeyCode::Char('E' | 'q') => app.show_expert = false,
+            _ => {}
+        }
+        return false;
+    }
+
     // Diff overlay.
     if app.diff_pair.is_some() {
         match code {
@@ -610,6 +621,7 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('<') => app.narrow_column(),
         KeyCode::Char('?') => app.show_help = true,
         KeyCode::Char('I') => app.show_stats_summary = true,
+        KeyCode::Char('E') => app.show_expert = true,
         KeyCode::Char('x') => app.mark_or_diff(),
         KeyCode::Char('a') => app.start_annotate(),
         KeyCode::Char('\\') => app.start_display_filter(),

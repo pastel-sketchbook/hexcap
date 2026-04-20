@@ -398,6 +398,7 @@ mod tests {
                 value: "443".into(),
             }],
             tcp_flags: 0x02, // SYN
+            expert: vec![],
         }
     }
 

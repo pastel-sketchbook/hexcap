@@ -1,5 +1,6 @@
 mod detail;
 mod diff;
+mod expert_overlay;
 mod flows;
 mod footer;
 mod header;
@@ -65,6 +66,11 @@ pub fn render(frame: &mut Frame, app: &App) {
     if app.diff_pair.is_some() {
         diff::draw_diff(frame, app, theme);
     }
+
+    // Overlay: expert info.
+    if app.show_expert {
+        expert_overlay::draw_expert(frame, app, theme);
+    }
 }
 
 /// List layout: header | stats | table | search bar? | footer.
@@ -107,10 +113,12 @@ fn draw_detail_layout(frame: &mut Frame, app: &App) {
     let theme = app.theme();
     let area = frame.area();
 
-    // Calculate decoded fields height dynamically.
-    let decoded_count = app
-        .selected_packet()
-        .map_or(0, |pkt| pkt.decoded.len().max(1));
+    // Calculate decoded fields height dynamically (includes expert items).
+    let decoded_count = app.selected_packet().map_or(0, |pkt| {
+        let base = pkt.decoded.len().max(1);
+        let expert_lines = if pkt.expert.is_empty() { 0 } else { pkt.expert.len() + 1 };
+        base + expert_lines
+    });
     let decoded_height = u16::try_from(decoded_count)
         .unwrap_or(u16::MAX)
         .saturating_add(2);

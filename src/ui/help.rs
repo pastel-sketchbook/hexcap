@@ -31,6 +31,7 @@ const BINDINGS: &[(&str, &str)] = &[
     ("Tab", "Select column to resize"),
     ("< / >", "Narrow/widen column"),
     ("I", "Capture statistics summary"),
+    ("E", "Expert information overlay"),
     ("x", "Mark packet for diff / show diff"),
     ("a", "Annotate packet"),
     ("\\", "Display filter (tcp, port:443, !arp)"),

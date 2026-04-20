@@ -7,6 +7,7 @@ use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 
 use crate::app::App;
 use crate::dns;
+use crate::expert;
 use crate::geoip;
 use crate::packet::{CapturedPacket, FlowKey, Protocol};
 use crate::theme::Theme;
@@ -39,10 +40,10 @@ fn semantic_color(p: &CapturedPacket) -> Option<Color> {
 }
 
 /// Base column widths for the packet table.
-const BASE_WIDTHS: [u16; 6] = [7, 12, 8, 18, 18, 6];
+const BASE_WIDTHS: [u16; 7] = [7, 12, 8, 18, 18, 6, 3];
 
 /// Build column constraints with user adjustments applied.
-fn table_widths(adjustments: &[i16; 6]) -> [Constraint; 6] {
+fn table_widths(adjustments: &[i16; 7]) -> [Constraint; 7] {
     let adjusted = |i: usize| -> u16 {
         #[allow(clippy::cast_possible_wrap)]
         let base = BASE_WIDTHS[i] as i16;
@@ -57,6 +58,7 @@ fn table_widths(adjustments: &[i16; 6]) -> [Constraint; 6] {
         Constraint::Min(adjusted(3)),
         Constraint::Min(adjusted(4)),
         Constraint::Length(adjusted(5)),
+        Constraint::Length(adjusted(6)),
     ]
 }
 
@@ -69,6 +71,7 @@ fn table_header(theme: &Theme) -> Row<'static> {
         Cell::from("Source"),
         Cell::from("Destination"),
         Cell::from("Len"),
+        Cell::from("Exp"),
     ])
     .style(
         Style::default()
@@ -147,6 +150,14 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
                 dst_display = geoip::geo_display(&dst_display, &app.geoip_cache);
             }
 
+            // Expert severity indicator.
+            let expert_cell = if let Some(sev) = App::max_severity(p) {
+                Cell::from(expert::severity_symbol(sev).to_string())
+                    .style(Style::default().fg(expert::severity_color(sev)))
+            } else {
+                Cell::from("")
+            };
+
             Row::new(vec![
                 Cell::from(id_label),
                 Cell::from(format_time(p)),
@@ -154,6 +165,7 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
                 Cell::from(src_display).style(Style::default().fg(flow_col)),
                 Cell::from(dst_display).style(Style::default().fg(flow_col)),
                 Cell::from(format!("{}", p.length)),
+                expert_cell,
             ])
             .style(if let Some(sem) = semantic_color(p) {
                 stripe_style(idx, theme).fg(sem)

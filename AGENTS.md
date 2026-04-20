@@ -60,6 +60,8 @@ src/
   config.rs     — theme persistence (TOML via directories crate)
   dns.rs        — reverse DNS resolution via libc getnameinfo, batch resolver,
                   display helper
+  expert.rs     — Expert information system: Severity (Chat/Note/Warn/Error),
+                  ExpertGroup, ExpertItem, severity colors and symbols
   export.rs     — write_pcap + read_pcap (classic libpcap format)
   headless.rs   — JSON output for subcommands and --json flag; serializes
                   packets, flows, stats, streams, and single-packet decode
@@ -69,6 +71,9 @@ src/
   packet.rs     — packet parsing (IPv4/IPv6), DecodedField, FlowKey,
                   TCP/UDP/ICMP/ARP decode, TLS handshake decode (SNI extraction)
   process.rs    — lsof-based process socket resolution
+  tcp_analysis.rs — Wireshark-style TCP sequence analysis: retransmissions,
+                  dup ACKs, out-of-order, zero window, keep-alive, window full,
+                  connection lifecycle (SYN/FIN/RST) detection
   theme.rs      — 16 themes (8 dark + 8 light), Ghostty auto-detection
   ui/
     mod.rs      — main layout dispatcher (list/detail/flows/stream layouts)
