@@ -259,7 +259,7 @@ fn main() -> Result<()> {
     };
 
     let mut socket_server = if let Some(ref path) = cli.socket {
-        match agent::SocketServer::bind(path, &agent_commands) {
+        match agent::SocketServer::bind(path, &agent_commands, cli.max_packets) {
             Ok(srv) => {
                 if let Ok(mut a) = app.lock() {
                     a.set_status(format!("Agent socket: {path}"));

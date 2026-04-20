@@ -424,9 +424,15 @@ use std::os::unix::net::UnixListener;
 
 /// A Unix domain socket server that broadcasts JSONL to connected clients
 /// and reads `@@HEXCAP:` commands from them (bidirectional).
+///
+/// New clients receive a replay of all previously broadcast packets on connect,
+/// so they don't miss buffered data. The replay buffer is capped at
+/// `max_replay` entries (oldest evicted first).
 pub struct SocketServer {
     _listener: UnixListener,
     clients: Arc<Mutex<Vec<std::os::unix::net::UnixStream>>>,
+    replay_buffer: Arc<Mutex<VecDeque<String>>>,
+    max_replay: usize,
     path: String,
 }
 
@@ -435,7 +441,7 @@ impl SocketServer {
     ///
     /// Each connected client gets a reader thread that parses incoming
     /// `@@HEXCAP:` command lines and pushes them to the shared command queue.
-    pub fn bind(path: &str, commands: &AgentCommands) -> Result<Self> {
+    pub fn bind(path: &str, commands: &AgentCommands, max_replay: usize) -> Result<Self> {
         // Remove stale socket file.
         let _ = std::fs::remove_file(path);
 
@@ -454,9 +460,12 @@ impl SocketServer {
 
         let clients: Arc<Mutex<Vec<std::os::unix::net::UnixStream>>> =
             Arc::new(Mutex::new(Vec::new()));
+        let replay_buffer: Arc<Mutex<VecDeque<String>>> =
+            Arc::new(Mutex::new(VecDeque::with_capacity(max_replay.min(8192))));
 
         // Background thread to accept new connections.
         let accept_clients = Arc::clone(&clients);
+        let accept_replay = Arc::clone(&replay_buffer);
         let accept_cmds = Arc::clone(commands);
         let accept_listener = listener
             .try_clone()
@@ -469,11 +478,31 @@ impl SocketServer {
                         Ok((stream, _)) => {
                             let _ = stream.set_nonblocking(false);
                             // Clone for broadcast list.
-                            if let Ok(write_stream) = stream.try_clone() {
-                                let mut cl = accept_clients
-                                    .lock()
-                                    .expect("socket clients mutex poisoned");
-                                cl.push(write_stream);
+                            if let Ok(mut write_stream) = stream.try_clone() {
+                                // Replay buffered packets to this new client.
+                                let replay_ok = {
+                                    let buf = accept_replay
+                                        .lock()
+                                        .expect("replay buffer mutex poisoned");
+                                    let mut ok = true;
+                                    for line in buf.iter() {
+                                        let msg = format!("{line}\n");
+                                        if write_stream.write_all(msg.as_bytes()).is_err() {
+                                            ok = false;
+                                            break;
+                                        }
+                                    }
+                                    if ok {
+                                        let _ = write_stream.flush();
+                                    }
+                                    ok
+                                };
+                                if replay_ok {
+                                    let mut cl = accept_clients
+                                        .lock()
+                                        .expect("socket clients mutex poisoned");
+                                    cl.push(write_stream);
+                                }
                             }
                             // Spawn reader thread for this client.
                             let cmds = Arc::clone(&accept_cmds);
@@ -504,12 +533,22 @@ impl SocketServer {
         Ok(Self {
             _listener: listener,
             clients,
+            replay_buffer,
+            max_replay,
             path: path.to_string(),
         })
     }
 
     /// Broadcast a JSONL line to all connected clients, removing dead ones.
+    /// Also appends to the replay buffer so new clients get the full history.
     pub fn broadcast(&self, json_line: &str) {
+        // Append to replay buffer for future clients.
+        if let Ok(mut buf) = self.replay_buffer.lock() {
+            buf.push_back(json_line.to_string());
+            while buf.len() > self.max_replay {
+                buf.pop_front();
+            }
+        }
         let mut clients = self.clients.lock().expect("socket clients mutex poisoned");
         let msg = format!("{json_line}\n");
         clients.retain_mut(|stream| {

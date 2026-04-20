@@ -158,11 +158,9 @@ pub fn run_loop(
                             ))
                             .to_string_lossy()
                             .to_string();
-                        match agent::SocketServer::bind(&path, agent_commands) {
-                            Ok(srv) => {
+                        match agent::SocketServer::bind(&path, agent_commands, a.max_packets) {                            Ok(srv) => {
                                 *socket_server = Some(srv);
                                 a.socket_path = Some(path.clone());
-                                agent_last_sent = 0;
                                 path
                             }
                             Err(e) => {
@@ -271,12 +269,10 @@ pub fn run_loop(
                         .join(format!("hexcap_{}.sock", std::process::id()))
                         .to_string_lossy()
                         .to_string();
-                    match agent::SocketServer::bind(&path, agent_commands) {
+                    match agent::SocketServer::bind(&path, agent_commands, a.max_packets) {
                         Ok(srv) => {
                             *socket_server = Some(srv);
                             a.socket_path = Some(path.clone());
-                            // Replay buffered packets to new socket clients.
-                            agent_last_sent = 0;
                             let msg = match crate::clipboard::copy_to_clipboard(&path) {
                                 Ok(()) => format!("Socket copied: {path}"),
                                 Err(_) => format!("Socket: {path}"),
