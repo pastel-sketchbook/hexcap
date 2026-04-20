@@ -7,6 +7,7 @@ pub mod helpers;
 mod list;
 mod picker;
 mod stats;
+mod stats_summary;
 
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Clear};
@@ -52,6 +53,11 @@ pub fn render(frame: &mut Frame, app: &App) {
     // Overlay: help popup.
     if app.show_help {
         help::draw_help(frame, theme);
+    }
+
+    // Overlay: stats summary popup.
+    if app.show_stats_summary {
+        stats_summary::draw_stats_summary(frame, app, theme);
     }
 }
 

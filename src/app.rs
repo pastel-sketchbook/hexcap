@@ -147,6 +147,9 @@ pub struct App {
 
     // -- Help overlay --
     pub show_help: bool,
+
+    // -- Stats summary overlay --
+    pub show_stats_summary: bool,
 }
 
 /// Aggregated info for a single bidirectional flow.
@@ -237,6 +240,7 @@ impl App {
             resize_column: 0,
             column_widths: [0; 6],
             show_help: false,
+            show_stats_summary: false,
         }
     }
 

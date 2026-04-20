@@ -281,6 +281,15 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         return false;
     }
 
+    // Stats summary overlay.
+    if app.show_stats_summary {
+        match code {
+            KeyCode::Esc | KeyCode::Char('I' | 'q') => app.show_stats_summary = false,
+            _ => {}
+        }
+        return false;
+    }
+
     match app.view {
         View::List => handle_list_key(app, code),
         View::Detail => {
@@ -344,6 +353,7 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('>') => app.widen_column(),
         KeyCode::Char('<') => app.narrow_column(),
         KeyCode::Char('?') => app.show_help = true,
+        KeyCode::Char('I') => app.show_stats_summary = true,
         _ => {}
     }
     false

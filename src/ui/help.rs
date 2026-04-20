@@ -30,6 +30,7 @@ const BINDINGS: &[(&str, &str)] = &[
     ("Y", "Copy raw hex (detail)"),
     ("Tab", "Select column to resize"),
     ("< / >", "Narrow/widen column"),
+    ("I", "Capture statistics summary"),
     ("?", "Toggle this help"),
 ];
 
