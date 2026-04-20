@@ -693,48 +693,122 @@ pub fn extract_tcp_payload(data: &[u8]) -> Option<&[u8]> {
 
 /// Evaluate a display filter expression against a packet.
 ///
-/// Tokens are space-separated (AND logic).  Supported:
+/// Supports:
 /// - Protocol: `tcp`, `udp`, `icmp`, `dns`, `arp`
 /// - Port:    `port:443`
 /// - IP:      `ip:10.0.0.1`
-/// - Flags:   `syn`, `rst`, `fin`
+/// - Flags:   `syn`, `rst`, `fin`, `ack`, `psh`
+/// - Length:  `len>100`, `len<1500`, `len>=64`, `len<=1500`, `len==100`
+/// - Expert:  `expert`, `expert.warn`, `expert.error`, `expert.note`, `expert.chat`
 /// - Negation: prefix any token with `!` (e.g. `!arp`, `!port:22`)
+/// - OR:      `tcp || udp`  or  `tcp or udp`
+/// - AND:     `tcp port:443` (implicit) or `tcp && port:443` or `tcp and port:443`
+///
+/// Operator precedence: `||` binds looser than `&&` / implicit AND.
 pub fn matches_display_filter(pkt: &CapturedPacket, filter: &str) -> bool {
-    for token in filter.split_whitespace() {
-        let (negated, tok) = if let Some(rest) = token.strip_prefix('!') {
-            (true, rest)
-        } else {
-            (false, token)
-        };
-        let matched = match tok.to_ascii_lowercase().as_str() {
-            "tcp" => pkt.protocol == Protocol::Tcp,
-            "udp" => pkt.protocol == Protocol::Udp,
-            "icmp" => pkt.protocol == Protocol::Icmp,
-            "dns" => pkt.protocol == Protocol::Dns,
-            "arp" => pkt.protocol == Protocol::Arp,
-            "syn" => pkt.tcp_flags & 0x02 != 0,
-            "rst" => pkt.tcp_flags & 0x04 != 0,
-            "fin" => pkt.tcp_flags & 0x01 != 0,
-            other => {
-                if let Some(port_str) = other.strip_prefix("port:") {
-                    if let Ok(port) = port_str.parse::<u16>() {
-                        let src_port = extract_port_from_addr(&pkt.src);
-                        let dst_port = extract_port_from_addr(&pkt.dst);
-                        src_port == Some(port) || dst_port == Some(port)
-                    } else {
-                        false
-                    }
-                } else if let Some(ip_str) = other.strip_prefix("ip:") {
-                    pkt.src.starts_with(ip_str) || pkt.dst.starts_with(ip_str)
-                } else {
-                    // Unknown token — treat as no-match to surface typos.
-                    false
-                }
-            }
-        };
-        if negated == matched {
-            return false;
-        }
+    // Split into OR groups first, then AND within each group.
+    let or_groups = split_or(filter);
+    or_groups.iter().any(|group| {
+        let and_tokens = split_and(group);
+        and_tokens.iter().all(|token| eval_token(pkt, token.trim()))
+    })
+}
+
+/// Split a filter string on `||` or `or` (case-insensitive).
+fn split_or(filter: &str) -> Vec<String> {
+    // Replace ` or ` (word-bounded) with `||`, then split on `||`.
+    let normalized = filter.replace(" or ", " || ").replace(" OR ", " || ");
+    normalized.split("||").map(|s| s.trim().to_string()).collect()
+}
+
+/// Split an AND group on `&&` or `and`; otherwise whitespace-separated tokens.
+fn split_and(group: &str) -> Vec<String> {
+    let normalized = group.replace(" and ", " && ").replace(" AND ", " && ");
+    if normalized.contains("&&") {
+        normalized.split("&&").map(|s| s.trim().to_string()).collect()
+    } else {
+        // Implicit AND: whitespace-separated tokens.
+        normalized.split_whitespace().map(String::from).collect()
     }
-    true
+}
+
+/// Evaluate a single filter token (possibly negated) against a packet.
+fn eval_token(pkt: &CapturedPacket, token: &str) -> bool {
+    if token.is_empty() {
+        return true;
+    }
+    let (negated, tok) = if let Some(rest) = token.strip_prefix('!') {
+        (true, rest)
+    } else {
+        (false, token)
+    };
+    let matched = eval_atom(pkt, tok);
+    if negated { !matched } else { matched }
+}
+
+/// Evaluate a single non-negated atom.
+fn eval_atom(pkt: &CapturedPacket, tok: &str) -> bool {
+    match tok.to_ascii_lowercase().as_str() {
+        "tcp" => pkt.protocol == Protocol::Tcp,
+        "udp" => pkt.protocol == Protocol::Udp,
+        "icmp" => pkt.protocol == Protocol::Icmp,
+        "dns" => pkt.protocol == Protocol::Dns,
+        "arp" => pkt.protocol == Protocol::Arp,
+        "syn" => pkt.tcp_flags & 0x02 != 0,
+        "rst" => pkt.tcp_flags & 0x04 != 0,
+        "fin" => pkt.tcp_flags & 0x01 != 0,
+        "ack" => pkt.tcp_flags & 0x10 != 0,
+        "psh" => pkt.tcp_flags & 0x08 != 0,
+        "expert" => !pkt.expert.is_empty(),
+        "expert.chat" => pkt.expert.iter().any(|e| e.severity == crate::expert::Severity::Chat),
+        "expert.note" => pkt.expert.iter().any(|e| e.severity == crate::expert::Severity::Note),
+        "expert.warn" => pkt.expert.iter().any(|e| e.severity == crate::expert::Severity::Warn),
+        "expert.error" => pkt.expert.iter().any(|e| e.severity == crate::expert::Severity::Error),
+        other => eval_comparison(pkt, other),
+    }
+}
+
+/// Evaluate comparison expressions like `len>100`, `port:443`, `ip:10.0.0`.
+fn eval_comparison(pkt: &CapturedPacket, tok: &str) -> bool {
+    // port:N
+    if let Some(port_str) = tok.strip_prefix("port:") {
+        return if let Ok(port) = port_str.parse::<u16>() {
+            let src_port = extract_port_from_addr(&pkt.src);
+            let dst_port = extract_port_from_addr(&pkt.dst);
+            src_port == Some(port) || dst_port == Some(port)
+        } else {
+            false
+        };
+    }
+    // ip:ADDR
+    if let Some(ip_str) = tok.strip_prefix("ip:") {
+        return pkt.src.starts_with(ip_str) || pkt.dst.starts_with(ip_str);
+    }
+    // len comparisons: len>N, len<N, len>=N, len<=N, len==N, len=N
+    if let Some(rest) = tok.strip_prefix("len") {
+        return eval_len_cmp(pkt.length, rest);
+    }
+    // Unknown token — no match.
+    false
+}
+
+/// Evaluate a length comparison like `>100`, `<=1500`, `==64`.
+fn eval_len_cmp(length: usize, expr: &str) -> bool {
+    if let Some(val) = expr.strip_prefix(">=") {
+        val.parse::<usize>().is_ok_and(|n| length >= n)
+    } else if let Some(val) = expr.strip_prefix("<=") {
+        val.parse::<usize>().is_ok_and(|n| length <= n)
+    } else if let Some(val) = expr.strip_prefix("==") {
+        val.parse::<usize>().is_ok_and(|n| length == n)
+    } else if let Some(val) = expr.strip_prefix("!=") {
+        val.parse::<usize>().is_ok_and(|n| length != n)
+    } else if let Some(val) = expr.strip_prefix('>') {
+        val.parse::<usize>().is_ok_and(|n| length > n)
+    } else if let Some(val) = expr.strip_prefix('<') {
+        val.parse::<usize>().is_ok_and(|n| length < n)
+    } else if let Some(val) = expr.strip_prefix('=') {
+        val.parse::<usize>().is_ok_and(|n| length == n)
+    } else {
+        false
+    }
 }

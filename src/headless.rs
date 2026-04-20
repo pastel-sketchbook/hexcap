@@ -454,6 +454,51 @@ mod tests {
     }
 
     #[test]
+    fn display_filter_or() {
+        let pkt = sample_packet();
+        assert!(matches_display_filter(&pkt, "tcp || udp"));
+        assert!(matches_display_filter(&pkt, "udp || tcp"));
+        assert!(!matches_display_filter(&pkt, "udp || icmp"));
+        assert!(matches_display_filter(&pkt, "udp or tcp"));
+    }
+
+    #[test]
+    fn display_filter_and_explicit() {
+        let pkt = sample_packet();
+        assert!(matches_display_filter(&pkt, "tcp && syn"));
+        assert!(!matches_display_filter(&pkt, "tcp && rst"));
+        assert!(matches_display_filter(&pkt, "tcp and port:443"));
+    }
+
+    #[test]
+    fn display_filter_len_comparison() {
+        let pkt = sample_packet(); // length = 100
+        assert!(matches_display_filter(&pkt, "len>50"));
+        assert!(!matches_display_filter(&pkt, "len>200"));
+        assert!(matches_display_filter(&pkt, "len>=100"));
+        assert!(matches_display_filter(&pkt, "len==100"));
+        assert!(!matches_display_filter(&pkt, "len<100"));
+        assert!(matches_display_filter(&pkt, "len<=100"));
+        assert!(matches_display_filter(&pkt, "len!=50"));
+    }
+
+    #[test]
+    fn display_filter_or_and_combined() {
+        let pkt = sample_packet();
+        // tcp && syn is true; udp && rst is false — OR should pass.
+        assert!(matches_display_filter(&pkt, "udp || tcp syn"));
+        assert!(matches_display_filter(&pkt, "tcp port:443 || icmp"));
+        assert!(!matches_display_filter(&pkt, "udp || icmp"));
+    }
+
+    #[test]
+    fn display_filter_ack_psh() {
+        let pkt = sample_packet(); // tcp_flags = 0x02 (SYN only)
+        assert!(!matches_display_filter(&pkt, "ack"));
+        assert!(!matches_display_filter(&pkt, "psh"));
+    }
+
+    #[test]
     fn flow_key_display() {
         let key = FlowKey::new("10.0.0.1:443", "10.0.0.2:52100");
         assert_eq!(format!("{key}"), "10.0.0.1:443-10.0.0.2:52100");
