@@ -14,17 +14,108 @@ use serde::Serialize;
 
 use crate::app::FlowInfo;
 use crate::capture;
+use crate::dns;
 use crate::export;
+use crate::geoip;
 use crate::packet::{
     self, CapturedPacket, FlowKey, Protocol, extract_tcp_payload, matches_display_filter,
 };
+
+/// Optional enrichment for headless output (GeoIP + DNS).
+pub struct Enrichment {
+    pub geo_db: Option<geoip::GeoDb>,
+    pub dns: bool,
+    dns_cache: HashMap<std::net::IpAddr, String>,
+    geo_cache: HashMap<std::net::IpAddr, String>,
+}
+
+impl Enrichment {
+    pub fn new(geoip_path: Option<&str>, dns_enabled: bool) -> Self {
+        let geo_db = geoip_path.and_then(|p| geoip::GeoDb::open(std::path::Path::new(p)).ok());
+        Self {
+            geo_db,
+            dns: dns_enabled,
+            dns_cache: HashMap::new(),
+            geo_cache: HashMap::new(),
+        }
+    }
+
+    /// Enrich an address string with DNS hostname and/or GeoIP country code.
+    pub fn enrich(&mut self, addr: &str) -> String {
+        let mut result = addr.to_string();
+        if self.dns
+            && let Some(ip) = parse_ip(addr)
+        {
+            let hostname = self.dns_cache.entry(ip).or_insert_with(|| {
+                dns::resolve_blocking(ip).unwrap_or_default()
+            });
+            if !hostname.is_empty() {
+                result = format!("{result} ({hostname})");
+            }
+        }
+        if let Some(ref db) = self.geo_db
+            && let Some(ip) = parse_ip(addr)
+        {
+            let code = self.geo_cache.entry(ip).or_insert_with(|| {
+                db.country(ip).unwrap_or_default()
+            });
+            if !code.is_empty() {
+                result = format!("{result} [{code}]");
+            }
+        }
+        result
+    }
+
+    /// Enrich a packet's src and dst fields in place.
+    pub fn enrich_packet(&mut self, pkt: &mut CapturedPacket) {
+        if self.geo_db.is_some() || self.dns {
+            pkt.src = self.enrich(&pkt.src);
+            pkt.dst = self.enrich(&pkt.dst);
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.geo_db.is_some() || self.dns
+    }
+}
+
+/// Extract IP from "ip:port" or "[ipv6]:port" format.
+fn parse_ip(addr: &str) -> Option<std::net::IpAddr> {
+    let ip_str = if let Some(rest) = addr.strip_prefix('[') {
+        rest.split(']').next()?
+    } else if let Some(idx) = addr.rfind(':') {
+        let after = &addr[idx + 1..];
+        if after.chars().all(|c| c.is_ascii_digit()) {
+            &addr[..idx]
+        } else {
+            addr
+        }
+    } else {
+        addr
+    };
+    ip_str.parse().ok()
+}
+
+/// Write a serializable value as JSON (compact or pretty) followed by a newline.
+fn write_json<T: Serialize>(value: &T, compact: bool) -> Result<()> {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    if compact {
+        serde_json::to_writer(&mut out, value)?;
+    } else {
+        serde_json::to_writer_pretty(&mut out, value)?;
+    }
+    out.write_all(b"\n")?;
+    out.flush()?;
+    Ok(())
+}
 
 // ---------------------------------------------------------------------------
 // Subcommand: read
 // ---------------------------------------------------------------------------
 
 /// Read a pcap file, decode packets, optionally filter, and output as JSON array.
-pub fn cmd_read(file: &str, filter: Option<&str>, limit: usize) -> Result<()> {
+pub fn cmd_read(file: &str, filter: Option<&str>, limit: usize, enrich: &mut Enrichment) -> Result<()> {
     let raw = export::read_pcap(Path::new(file))?;
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -48,6 +139,7 @@ pub fn cmd_read(file: &str, filter: Option<&str>, limit: usize) -> Result<()> {
         }
         first = false;
 
+        enrich.enrich_packet(&mut pkt);
         serde_json::to_writer(&mut out, &pkt)?;
 
         count += 1;
@@ -71,6 +163,7 @@ pub fn cmd_capture(
     bpf_filter: Option<&str>,
     count: usize,
     display_filter: Option<&str>,
+    enrich: &mut Enrichment,
 ) -> Result<()> {
     let iface = if let Some(i) = interface {
         i.to_string()
@@ -100,7 +193,7 @@ pub fn cmd_capture(
     loop {
         match cap.next_packet() {
             Ok(pkt_data) => {
-                let pkt = packet::parse_packet(id, pkt_data.data);
+                let mut pkt = packet::parse_packet(id, pkt_data.data);
                 id += 1;
 
                 if let Some(f) = display_filter
@@ -109,6 +202,7 @@ pub fn cmd_capture(
                     continue;
                 }
 
+                enrich.enrich_packet(&mut pkt);
                 serde_json::to_writer(&mut out, &pkt)?;
                 out.write_all(b"\n")?;
                 out.flush()?;
@@ -131,7 +225,7 @@ pub fn cmd_capture(
 // ---------------------------------------------------------------------------
 
 /// Extract flows from a pcap file and output as JSON array.
-pub fn cmd_flows(file: &str) -> Result<()> {
+pub fn cmd_flows(file: &str, compact: bool, enrich: &mut Enrichment) -> Result<()> {
     let raw = export::read_pcap(Path::new(file))?;
     let mut flows: HashMap<FlowKey, FlowInfo> = HashMap::new();
 
@@ -157,13 +251,28 @@ pub fn cmd_flows(file: &str) -> Result<()> {
         entry.packet_count += 1;
         entry.total_bytes += pkt.length as u64;
         entry.last_seen = Some(pkt.timestamp);
+
+        // Track directional counters: src in FlowInfo is the first-seen endpoint.
+        if pkt.src == entry.src {
+            entry.packets_a_to_b += 1;
+            entry.bytes_a_to_b += pkt.length as u64;
+        } else {
+            entry.packets_b_to_a += 1;
+            entry.bytes_b_to_a += pkt.length as u64;
+        }
     }
 
-    let mut flow_list: Vec<&FlowInfo> = flows.values().collect();
+    let mut flow_list: Vec<FlowInfo> = flows.into_values().collect();
     flow_list.sort_by_key(|f| Reverse(f.total_bytes));
 
-    serde_json::to_writer_pretty(io::stdout().lock(), &flow_list)?;
-    println!();
+    if enrich.is_active() {
+        for f in &mut flow_list {
+            f.src = enrich.enrich(&f.src);
+            f.dst = enrich.enrich(&f.dst);
+        }
+    }
+
+    write_json(&flow_list, compact)?;
     Ok(())
 }
 
@@ -195,7 +304,7 @@ struct ConversationEntry {
 }
 
 /// Compute capture statistics from a pcap file and output as JSON.
-pub fn cmd_stats(file: &str) -> Result<()> {
+pub fn cmd_stats(file: &str, compact: bool, enrich: &mut Enrichment) -> Result<()> {
     let raw = export::read_pcap(Path::new(file))?;
     let total_packets = raw.len();
     let mut protocols: HashMap<String, u64> = HashMap::new();
@@ -243,6 +352,16 @@ pub fn cmd_stats(file: &str) -> Result<()> {
     top_conversations.sort_by_key(|c| Reverse(c.bytes));
     top_conversations.truncate(10);
 
+    if enrich.is_active() {
+        for t in &mut top_talkers {
+            t.address = enrich.enrich(&t.address);
+        }
+        for c in &mut top_conversations {
+            c.src = enrich.enrich(&c.src);
+            c.dst = enrich.enrich(&c.dst);
+        }
+    }
+
     let output = StatsOutput {
         total_packets,
         total_bytes,
@@ -251,8 +370,7 @@ pub fn cmd_stats(file: &str) -> Result<()> {
         top_conversations,
     };
 
-    serde_json::to_writer_pretty(io::stdout().lock(), &output)?;
-    println!();
+    write_json(&output, compact)?;
     Ok(())
 }
 
@@ -270,7 +388,7 @@ struct StreamOutput {
 }
 
 /// Follow a TCP stream from a pcap file and output as JSON.
-pub fn cmd_stream(file: &str, flow_str: Option<&str>) -> Result<()> {
+pub fn cmd_stream(file: &str, flow_str: Option<&str>, compact: bool, enrich: &mut Enrichment) -> Result<()> {
     let raw = export::read_pcap(Path::new(file))?;
     let mut packets: Vec<CapturedPacket> = Vec::new();
 
@@ -334,16 +452,27 @@ pub fn cmd_stream(file: &str, flow_str: Option<&str>) -> Result<()> {
         })
         .collect();
 
+    let raw_flow = format!("{target_flow}");
+    let flow_display = if enrich.is_active() {
+        let parts: Vec<&str> = raw_flow.split('-').collect();
+        if parts.len() == 2 {
+            format!("{}-{}", enrich.enrich(parts[0]), enrich.enrich(parts[1]))
+        } else {
+            raw_flow
+        }
+    } else {
+        raw_flow
+    };
+
     let output = StreamOutput {
-        flow: format!("{target_flow}"),
+        flow: flow_display,
         packets: stream_pkt_count,
         payload_bytes: payload.len(),
         payload_hex: hex_str.join(" "),
         payload_ascii: ascii_str,
     };
 
-    serde_json::to_writer_pretty(io::stdout().lock(), &output)?;
-    println!();
+    write_json(&output, compact)?;
     Ok(())
 }
 
@@ -352,7 +481,7 @@ pub fn cmd_stream(file: &str, flow_str: Option<&str>) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Decode a single packet from a pcap file and output as pretty JSON.
-pub fn cmd_decode(file: &str, id: u64) -> Result<()> {
+pub fn cmd_decode(file: &str, id: u64, compact: bool, enrich: &mut Enrichment) -> Result<()> {
     let raw = export::read_pcap(Path::new(file))?;
     #[allow(clippy::cast_possible_truncation)]
     let idx = id as usize;
@@ -363,9 +492,34 @@ pub fn cmd_decode(file: &str, id: u64) -> Result<()> {
     let mut pkt = packet::parse_packet(id, data);
     pkt.timestamp = *timestamp;
 
-    serde_json::to_writer_pretty(io::stdout().lock(), &pkt)?;
-    println!();
+    enrich.enrich_packet(&mut pkt);
+    write_json(&pkt, compact)?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Subcommand: interfaces
+// ---------------------------------------------------------------------------
+
+/// List available capture interfaces as JSON.
+pub fn cmd_interfaces(compact: bool) -> Result<()> {
+    let ifaces = capture::list_interfaces()?;
+    let entries: Vec<InterfaceEntry> = ifaces
+        .into_iter()
+        .map(|i| InterfaceEntry {
+            name: i.name,
+            description: i.description,
+            addresses: i.addresses,
+        })
+        .collect();
+    write_json(&entries, compact)
+}
+
+#[derive(Serialize)]
+struct InterfaceEntry {
+    name: String,
+    description: String,
+    addresses: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -373,8 +527,8 @@ pub fn cmd_decode(file: &str, id: u64) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Dump a pcap file as a JSON array (for `--read --json`).
-pub fn cmd_json_read(file: &str) -> Result<()> {
-    cmd_read(file, None, 0)
+pub fn cmd_json_read(file: &str, enrich: &mut Enrichment) -> Result<()> {
+    cmd_read(file, None, 0, enrich)
 }
 
 /// Live capture with JSON output (for `--json` without `--read`).
@@ -382,8 +536,9 @@ pub fn cmd_json_live(
     interface: Option<&str>,
     bpf_filter: Option<&str>,
     count: usize,
+    enrich: &mut Enrichment,
 ) -> Result<()> {
-    cmd_capture(interface, bpf_filter, count, None)
+    cmd_capture(interface, bpf_filter, count, None, enrich)
 }
 
 #[cfg(test)]

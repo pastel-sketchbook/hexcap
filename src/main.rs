@@ -68,6 +68,14 @@ struct Cli {
     #[arg(long)]
     json: bool,
 
+    /// Use compact JSON output (no pretty-printing) in headless/subcommand mode
+    #[arg(long)]
+    compact: bool,
+
+    /// Enable reverse DNS resolution in headless/subcommand mode
+    #[arg(long)]
+    dns: bool,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -126,6 +134,8 @@ enum Command {
         #[arg(long)]
         id: u64,
     },
+    /// List available capture interfaces as JSON
+    Interfaces,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -142,12 +152,14 @@ fn main() -> Result<()> {
 
     // ── Subcommand dispatch (headless, JSON output) ────────────────────
     if let Some(cmd) = cli.command {
+        let compact = cli.compact;
+        let mut enrich = headless::Enrichment::new(cli.geoip.as_deref(), cli.dns);
         return match cmd {
             Command::Read {
                 file,
                 filter,
                 limit,
-            } => headless::cmd_read(&file, filter.as_deref(), limit),
+            } => headless::cmd_read(&file, filter.as_deref(), limit, &mut enrich),
             Command::Capture {
                 interface,
                 filter,
@@ -158,23 +170,27 @@ fn main() -> Result<()> {
                 filter.as_deref(),
                 count,
                 display_filter.as_deref(),
+                &mut enrich,
             ),
-            Command::Flows { file } => headless::cmd_flows(&file),
-            Command::Stats { file } => headless::cmd_stats(&file),
-            Command::Stream { file, flow } => headless::cmd_stream(&file, flow.as_deref()),
-            Command::Decode { file, id } => headless::cmd_decode(&file, id),
+            Command::Flows { file } => headless::cmd_flows(&file, compact, &mut enrich),
+            Command::Stats { file } => headless::cmd_stats(&file, compact, &mut enrich),
+            Command::Stream { file, flow } => headless::cmd_stream(&file, flow.as_deref(), compact, &mut enrich),
+            Command::Decode { file, id } => headless::cmd_decode(&file, id, compact, &mut enrich),
+            Command::Interfaces => headless::cmd_interfaces(compact),
         };
     }
 
     // ── --json flag on root CLI ────────────────────────────────────────
     if cli.json {
+        let mut enrich = headless::Enrichment::new(cli.geoip.as_deref(), cli.dns);
         return if let Some(ref path) = cli.read {
-            headless::cmd_json_read(path)
+            headless::cmd_json_read(path, &mut enrich)
         } else {
             headless::cmd_json_live(
                 cli.interface.as_deref(),
                 cli.filter.as_deref(),
                 cli.max_packets,
+                &mut enrich,
             )
         };
     }

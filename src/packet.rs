@@ -647,6 +647,17 @@ fn serialize_system_time<S: serde::Serializer>(
     serializer.serialize_str(&format!("{secs}.{millis:03}"))
 }
 
+/// Serialize `Option<SystemTime>` as epoch string or null.
+pub fn serialize_opt_timestamp<S: serde::Serializer>(
+    ts: &Option<SystemTime>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match ts {
+        Some(t) => serialize_system_time(t, serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
 /// Serialize `Vec<u8>` as a hex string (e.g. "00 11 22 ff").
 fn serialize_bytes_as_hex<S: serde::Serializer>(
     data: &[u8],

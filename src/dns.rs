@@ -11,6 +11,11 @@ fn resolve_ip(ip: IpAddr) -> Option<String> {
     reverse_lookup(ip)
 }
 
+/// Blocking reverse DNS lookup. Public API for headless mode.
+pub fn resolve_blocking(ip: IpAddr) -> Option<String> {
+    reverse_lookup(ip)
+}
+
 /// Reverse DNS lookup using libc `getnameinfo`.
 #[allow(clippy::cast_possible_truncation)]
 fn reverse_lookup(ip: IpAddr) -> Option<String> {

@@ -239,10 +239,10 @@ pub struct FlowInfo {
     /// Bytes from dst → src.
     pub bytes_b_to_a: u64,
     /// Timestamp of the first packet in this flow (epoch secs).
-    #[serde(skip)]
+    #[serde(serialize_with = "crate::packet::serialize_opt_timestamp")]
     pub first_seen: Option<std::time::SystemTime>,
     /// Timestamp of the last packet in this flow (epoch secs).
-    #[serde(skip)]
+    #[serde(serialize_with = "crate::packet::serialize_opt_timestamp")]
     pub last_seen: Option<std::time::SystemTime>,
 }
 
