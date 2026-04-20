@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 
 use crate::app::App;
 use crate::packet::Protocol;
@@ -285,7 +285,7 @@ pub fn draw_proto_hierarchy(frame: &mut Frame, app: &App, theme: &Theme) {
         )));
     }
 
-    let popup_w = 68u16.min(area.width.saturating_sub(4));
+    let popup_w = super::helpers::POPUP_WIDTH.min(area.width.saturating_sub(4));
     let popup_h = (lines.len() as u16 + 3).min(area.height.saturating_sub(2));
     let x = area.x + (area.width.saturating_sub(popup_w)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_h)) / 2;
@@ -299,6 +299,7 @@ pub fn draw_proto_hierarchy(frame: &mut Frame, app: &App, theme: &Theme) {
             .border_style(Style::default().fg(theme.accent))
             .title(" Protocol Hierarchy ")
             .title_style(bold)
+            .padding(Padding::horizontal(1))
             .style(Style::default().bg(theme.panel_bg)),
     );
 
