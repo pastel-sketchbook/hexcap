@@ -183,8 +183,8 @@ pub fn draw_agent_picker(frame: &mut Frame, app: &App, theme: &Theme) {
         .map(|preset| {
             let mode_tag = match preset.spawn_mode {
                 crate::agent::SpawnMode::Chat => "chat",
-                crate::agent::SpawnMode::Tmux => "tmux",
                 crate::agent::SpawnMode::Ghostty => "ghostty",
+                crate::agent::SpawnMode::Split => "split",
             };
             ListItem::new(Line::from(vec![
                 Span::styled(

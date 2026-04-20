@@ -431,7 +431,7 @@ pub fn run_loop(
                                 preset.name
                             ));
                         }
-                        agent::SpawnMode::Tmux | agent::SpawnMode::Ghostty => {
+                        agent::SpawnMode::Ghostty | agent::SpawnMode::Split => {
                             // Split mode: open agent in a terminal split pane.
                             let Some(agent_bin) =
                                 agent::resolve_binary(preset.binary)
@@ -442,18 +442,21 @@ pub fn run_loop(
                                 ));
                                 continue;
                             };
-                            let split_result =
-                                if preset.spawn_mode == agent::SpawnMode::Tmux {
-                                    agent::open_tmux_split(&agent_bin, &sock_path)
-                                } else {
-                                    agent::open_ghostty_split(&agent_bin, &sock_path)
-                                };
-                            let mode_name =
-                                if preset.spawn_mode == agent::SpawnMode::Tmux {
-                                    "tmux"
-                                } else {
-                                    "Ghostty"
-                                };
+                            let use_ghostty = match preset.spawn_mode {
+                                agent::SpawnMode::Ghostty => true,
+                                agent::SpawnMode::Split => crate::ui::helpers::is_ghostty(),
+                                _ => false,
+                            };
+                            let split_result = if use_ghostty {
+                                agent::open_ghostty_split(&agent_bin, &sock_path)
+                            } else {
+                                agent::open_tmux_split(&agent_bin, &sock_path)
+                            };
+                            let mode_name = if use_ghostty {
+                                "Ghostty"
+                            } else {
+                                "tmux"
+                            };
                             match split_result {
                                 Ok(true) => {
                                     a.agent_name = Some(preset.name.to_string());

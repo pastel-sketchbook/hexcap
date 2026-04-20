@@ -53,10 +53,10 @@ use serde::{Deserialize, Serialize};
 pub enum SpawnMode {
     /// Chat-only: no external process. Agent pane shows chat for socket IPC.
     Chat,
-    /// Open in a tmux split pane.
-    Tmux,
     /// Open in a Ghostty split pane (AppleScript).
     Ghostty,
+    /// Auto-detect: Ghostty AppleScript if on Ghostty, else tmux split.
+    Split,
 }
 
 /// Built-in agent presets available in the agent picker.
@@ -85,7 +85,7 @@ pub const AGENT_PRESETS: &[AgentPreset] = &[
         command_template: "opencode",
         binary: "opencode",
         description: "OpenCode coding agent",
-        spawn_mode: SpawnMode::Tmux,
+        spawn_mode: SpawnMode::Split,
     },
     AgentPreset {
         name: "Gemini",
