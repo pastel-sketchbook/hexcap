@@ -14,7 +14,7 @@ const BINDINGS: &[(&str, &str)] = &[
     ("c", "Clear packets"),
     ("/", "Search (metadata → payload → hex)"),
     ("f", "Cycle protocol filter"),
-    ("F", "Toggle auto-follow"),
+    ("F", "Cycle follow speed (1/5/10/25)"),
     ("n", "Open flows view"),
     ("N", "Clear flow filter"),
     ("t", "Cycle theme"),

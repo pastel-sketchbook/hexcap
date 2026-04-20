@@ -332,7 +332,7 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('t') => app.next_theme(),
         KeyCode::Char('/') => app.start_search(),
         KeyCode::Char('f') => app.next_proto_filter(),
-        KeyCode::Char('F') => app.toggle_follow(),
+        KeyCode::Char('F') => app.cycle_follow_speed(),
         KeyCode::Char('p') => {
             if let Ok(procs) = process::list_network_processes() {
                 app.open_process_picker(procs);

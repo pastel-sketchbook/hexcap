@@ -86,6 +86,10 @@ pub struct App {
     pub search_query: String,
     pub proto_filter: ProtoFilter,
     pub follow: bool,
+    /// Follow mode scroll interval: 1 = every packet, 5 = every 5th, etc.
+    pub follow_interval: u64,
+    /// Counter for follow interval throttling.
+    pub follow_counter: u64,
 
     // -- Stats --
     pub total_bytes: u64,
@@ -220,6 +224,8 @@ impl App {
             search_query: String::new(),
             proto_filter: ProtoFilter::All,
             follow: true,
+            follow_interval: 1,
+            follow_counter: 0,
             total_bytes: 0,
             current_window_bytes: 0,
             bandwidth_history: VecDeque::new(),
@@ -357,8 +363,30 @@ impl App {
 
     // -- Follow mode ---------------------------------------------------------
 
-    pub fn toggle_follow(&mut self) {
-        self.follow = !self.follow;
+    /// Cycle follow speed: off → 1x → 5x → 10x → 25x → off.
+    pub fn cycle_follow_speed(&mut self) {
+        if self.follow {
+            self.follow_interval = match self.follow_interval {
+                1 => 5,
+                5 => 10,
+                10 => 25,
+                _ => {
+                    self.follow = false;
+                    self.set_status("Follow: off".into());
+                    return;
+                }
+            };
+        } else {
+            self.follow = true;
+            self.follow_interval = 1;
+        }
+        self.follow_counter = 0;
+        let label = if self.follow_interval == 1 {
+            "Follow: every packet".into()
+        } else {
+            format!("Follow: every {}th packet", self.follow_interval)
+        };
+        self.set_status(label);
     }
 
     // -- Bandwidth tracking ---------------------------------------------------
@@ -418,9 +446,13 @@ impl App {
             }
         }
         if self.follow {
-            let filtered = self.filtered_indices();
-            if let Some(&last) = filtered.last() {
-                self.selected = last;
+            self.follow_counter += 1;
+            if self.follow_counter >= self.follow_interval {
+                self.follow_counter = 0;
+                let filtered = self.filtered_indices();
+                if let Some(&last) = filtered.last() {
+                    self.selected = last;
+                }
             }
         }
     }
