@@ -14,7 +14,8 @@ inspection powered by **hexyl**-style rendering.
 
 Show captured packets in a scrollable TUI list, allow selecting a packet to
 view its raw bytes in a hexyl-style hex dump pane. Support filtering by
-protocol, interface selection, and live/paused capture modes.
+protocol, process, and flow. Support interface switching, pcap export/import,
+clipboard copy, bookmarks, and live bandwidth tracking.
 
 ## Build & Run
 
@@ -25,32 +26,45 @@ protocol, interface selection, and live/paused capture modes.
 - `cargo fmt --all` to format code.
 - `task run` to build release and run.
 - `task run:dev` for debug build.
+- `task check:all` to format + lint + test.
+- `task version:show/patch/minor/major/sync/tag` for version management.
 
 ## Key Dependencies
 
 - `pcap` — libpcap bindings for packet capture.
 - `ratatui` + `crossterm` — terminal UI framework.
-- `clap` — CLI argument parsing (interface, filter, etc.).
+- `clap` — CLI argument parsing (interface, filter, process, read, write, etc.).
 - `anyhow` — error handling.
 - `tracing` + `tracing-subscriber` — structured logging.
+- `directories` — XDG config paths for theme persistence.
 
 ## Architecture
 
 ```
 src/
   main.rs       — entry point, terminal setup, event loop, key dispatch
-  app.rs        — application state (View, theme_index), navigation, theme cycling
+                  (handle_key, handle_list_key, handle_detail_key, handle_flows_key)
+  app.rs        — App state, View (List/Detail/Flows), ProcessFilter, ProcessPicker,
+                  InterfacePicker, FlowInfo, bookmarks, bandwidth tracking, page nav
+  capture.rs    — libpcap capture thread with AtomicBool stop, list_interfaces()
+  clipboard.rs  — pbcopy/xclip clipboard helper
+  config.rs     — theme persistence (TOML via directories crate)
+  export.rs     — write_pcap + read_pcap (classic libpcap format)
+  hex.rs        — hexyl-style hex dump renderer, hex_dump_plain, hex_string
+  packet.rs     — packet parsing (IPv4/IPv6), DecodedField, FlowKey,
+                  TCP/UDP/ICMP/ARP decode
+  process.rs    — lsof-based process socket resolution
   theme.rs      — 16 themes (8 dark + 8 light), Ghostty auto-detection
-  capture.rs    — libpcap capture thread, packet producer
-  packet.rs     — packet parsing, protocol detection, display structs
-  hex.rs        — hexyl-style hex dump renderer (theme-colored)
   ui/
-    mod.rs      — main layout dispatcher (header | table | footer)
+    mod.rs      — main layout dispatcher (list/detail/flows layouts)
     header.rs   — pastel-colored title bar, live/paused badge, packet count
-    list.rs     — packet table with protocol-colored tags, row striping
-    detail.rs   — packet info bar + hex dump pane
-    footer.rs   — key badge bar + theme name + version
-    helpers.rs  — size guard, stripe_style, highlight_style, key_badge, muted_span
+    list.rs     — packet table with flow colors, bookmarks, search bar
+    detail.rs   — packet info bar, decoded fields panel, hex dump pane
+    flows.rs    — flows table (proto, endpoints, packets, bytes)
+    footer.rs   — key badge bar + status message + process filter + theme + version
+    picker.rs   — process picker + interface picker overlays
+    stats.rs    — protocol counts, bytes, filter, flow indicator, bandwidth sparkline
+    helpers.rs  — shared UI utilities (stripe, highlight, key_badge, muted_span)
 ```
 
 ## Theme System
@@ -64,6 +78,7 @@ and their light variants.
   (or macOS app support path), parses `theme = <name>`, and maps known
   Ghostty theme families (gruvbox, solarized, ayu, flexoki, ffe, etc.)
   to the matching hexcap theme index.
+- Theme persisted to `~/.config/hexcap/preferences.toml`.
 - Each theme includes hex dump colors: `hex_null`, `hex_ascii`, `hex_space`,
   `hex_high`, `hex_other`, `hex_offset`.
 
@@ -73,6 +88,10 @@ and their light variants.
 - **Vim keybindings**: j/k navigate, Enter opens detail, Esc/q goes back, Space pauses.
 - **Background capture**: Packet capture runs on a dedicated `std::thread`; TUI renders on main thread with `Arc<Mutex<App>>`.
 - **Ring buffer**: Packets stored in a `VecDeque` bounded by `--max-packets`.
+- **Flow tracking**: Bidirectional `FlowKey` normalization, 8 pastel colors round-robin, dedicated flows view.
+- **Interface switching**: `AtomicBool` stop signal + capture thread restart; mutex guard dropped before restart to avoid deadlock.
+- **Pcap format**: Classic libpcap (magic `0xA1B2C3D4`) for universal Wireshark/tcpdump compatibility.
+- **Process filtering**: Software post-filter via lsof socket resolution (BPF can't filter by PID).
 
 ## Conventions
 
@@ -81,3 +100,5 @@ and their light variants.
 - Keep modules small and focused; one responsibility per file.
 - Packet capture runs on a background thread; TUI runs on the main thread.
 - All UI functions take `&Theme` as a parameter — no hardcoded colors.
+- Version managed via `VERSION` file + `scripts/version.sh` (GNU sed).
+- Dual-licensed MIT + BSD-3-Clause (for libpcap compatibility).
