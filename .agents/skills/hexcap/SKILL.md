@@ -380,6 +380,10 @@ hexcap read capture.pcap --dns --geoip country.mmdb --compact
 @@HEXCAP:{"action":"view","target":"detail"}
 @@HEXCAP:{"action":"mark_diff","id":7}
 @@HEXCAP:{"action":"interface","name":"en0"}
+@@HEXCAP:{"action":"register","name":"copilot","capabilities":["analyze","filter"]}
+@@HEXCAP:{"action":"chat","message":"found suspicious traffic"}
+@@HEXCAP:{"action":"ask","to":"copilot","request_id":"a1","message":"analyze packet 42"}
+@@HEXCAP:{"action":"reply","to":"opencode","request_id":"a1","message":"it is a retransmission"}
 ```
 
 ## Architecture Notes
@@ -403,6 +407,9 @@ hexcap read capture.pcap --dns --geoip country.mmdb --compact
 - Agent picker: `A` key opens picker listing Copilot, OpenCode, Gemini, Amp; Copilot/OpenCode/Gemini spawn in prompt mode (snapshot pcap, non-interactive CLI); Amp spawns in terminal split mode (Ghostty/tmux/WezTerm/Zellij)
 - Agent split mode: opens agent TUI in a right-side terminal split pane; Ghostty (AppleScript), tmux, WezTerm, Zellij supported; `HEXCAP_SOCKET` env var set so agent can send commands back; won't spawn duplicate if agent already open
 - Ghostty detection: `GHOSTTY_RESOURCES_DIR` → `TERM_PROGRAM` → `pgrep -xi ghostty` (works under sudo which strips env vars)
-- Agent command protocol: agents write `@@HEXCAP:{"action":"..."}` to stdout (pipe mode) or to the Unix socket (split mode) to control TUI; supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`, `interface`; export paths validated against `..` traversal; interface names validated against available interfaces
-- Agent query protocol: agents send `@@HEXCAP:{"type":"query","id":"r1","query":"<kind>",...}` and receive `{"id":"r1","type":"response","data":...}` routed to the requesting client only; supported queries: `packets` (filter/limit), `flows`, `stats`, `decode` (packet_id), `stream` (flow), `status`, `interfaces`; per-client IDs for directed response routing
+- Agent command protocol: agents write `@@HEXCAP:{"action":"..."}` to stdout (pipe mode) or to the Unix socket (split mode) to control TUI; supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`, `interface`, `register`, `chat`, `ask`, `reply`; export paths validated against `..` traversal; interface names validated against available interfaces
+- Agent query protocol: agents send `@@HEXCAP:{"type":"query","id":"r1","query":"<kind>",...}` and receive `{"id":"r1","type":"response","data":...}` routed to the requesting client only; supported queries: `packets` (filter/limit), `flows`, `stats`, `decode` (packet_id), `stream` (flow), `status`, `interfaces`, `agents`; per-client IDs for directed response routing
+- Agent registry: agents register with `{"action":"register","name":"<name>","capabilities":["..."]}`. Registry maps client_id to name/capabilities. `agents` query returns all registered agents.
+- Agent chat: `{"action":"chat","message":"..."}` broadcasts `{"type":"chat","from":"<name>","message":"..."}` to all other connected agents (not the sender).
+- Agent relay: `{"action":"ask","to":"<name>","request_id":"<id>","message":"..."}` routes a directed message to a named agent; `{"action":"reply",...}` sends a response back. Messages arrive as `{"type":"ask",...}` / `{"type":"reply",...}` with sender name resolved from registry.
 - ANSI stripping: agent stdout/stderr lines have escape sequences stripped before display

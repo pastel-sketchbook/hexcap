@@ -239,6 +239,7 @@ fn main() -> Result<()> {
         .agent_commands
         .clone();
     let agent_queries = agent::new_queries();
+    let stamped_commands = agent::new_stamped_commands();
 
     let mut agent_pipe = if let Some(ref cmd) = cli.pipe {
         match agent::AgentPipe::spawn(cmd, agent_output.clone(), &agent_commands) {
@@ -260,7 +261,7 @@ fn main() -> Result<()> {
     };
 
     let mut socket_server = if let Some(ref path) = cli.socket {
-        match agent::SocketServer::bind(path, &agent_commands, &agent_queries, cli.max_packets) {
+        match agent::SocketServer::bind(path, &agent_commands, &agent_queries, &stamped_commands, cli.max_packets) {
             Ok(srv) => {
                 if let Ok(mut a) = app.lock() {
                     a.set_status(format!("Agent socket: {path}"));
@@ -405,6 +406,7 @@ fn main() -> Result<()> {
         &agent_output,
         &agent_commands,
         &agent_queries,
+        &stamped_commands,
     );
 
     disable_raw_mode()?;

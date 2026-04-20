@@ -243,10 +243,41 @@ pub enum AgentCommand {
     MarkDiff { id: u64 },
     /// Switch capture interface.
     Interface { name: String },
+    /// Register this agent with a name and optional capabilities.
+    Register {
+        name: String,
+        #[serde(default)]
+        capabilities: Vec<String>,
+    },
+    /// Broadcast a chat message to all other connected agents.
+    Chat { message: String },
+    /// Send a directed message to a named agent (Layer 3 relay).
+    Ask {
+        to: String,
+        request_id: String,
+        message: String,
+    },
+    /// Reply to a directed ask from another agent.
+    Reply {
+        to: String,
+        request_id: String,
+        message: String,
+    },
 }
 
 fn default_view() -> String {
     "list".into()
+}
+
+/// Returns true if the command needs client_id context for routing.
+fn needs_client_context(cmd: &AgentCommand) -> bool {
+    matches!(
+        cmd,
+        AgentCommand::Register { .. }
+            | AgentCommand::Chat { .. }
+            | AgentCommand::Ask { .. }
+            | AgentCommand::Reply { .. }
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +315,8 @@ pub enum QueryKind {
     Status,
     /// Return available network interfaces.
     Interfaces,
+    /// Return list of registered agents.
+    Agents,
 }
 
 /// A query from an agent, carrying a request ID and the client that sent it.
@@ -311,6 +344,42 @@ pub struct QueryResponse {
 
 /// Shared queue of pending queries for the main loop.
 pub type AgentQueries = Arc<Mutex<VecDeque<AgentQuery>>>;
+
+/// A command stamped with the sender's client ID (needed for register/chat/ask/reply).
+#[derive(Debug, Clone)]
+pub struct StampedCommand {
+    /// Socket client ID of the sender.
+    pub client_id: u64,
+    /// The command.
+    pub command: AgentCommand,
+}
+
+/// Shared queue of stamped commands (socket-origin commands that need client context).
+pub type StampedCommands = Arc<Mutex<VecDeque<StampedCommand>>>;
+
+/// Create a new shared stamped command queue.
+pub fn new_stamped_commands() -> StampedCommands {
+    Arc::new(Mutex::new(VecDeque::new()))
+}
+
+/// Information about a registered agent.
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentRegistration {
+    /// Client-chosen name (e.g. "copilot", "opencode").
+    pub name: String,
+    /// Socket client ID.
+    pub client_id: u64,
+    /// Self-declared capabilities (e.g. \["analyze", "filter"\]).
+    pub capabilities: Vec<String>,
+}
+
+/// Shared agent registry (client_id → registration).
+pub type AgentRegistry = Arc<Mutex<std::collections::HashMap<u64, AgentRegistration>>>;
+
+/// Create a new shared agent registry.
+pub fn new_registry() -> AgentRegistry {
+    Arc::new(Mutex::new(std::collections::HashMap::new()))
+}
 
 /// Create a new shared query queue.
 pub fn new_queries() -> AgentQueries {
@@ -565,6 +634,8 @@ pub struct SocketServer {
     next_client_id: Arc<std::sync::atomic::AtomicU64>,
     max_replay: usize,
     path: String,
+    /// Registry of agents that have sent a `register` command.
+    pub registry: AgentRegistry,
 }
 
 /// A connected socket client with a unique ID for response routing.
@@ -583,6 +654,7 @@ impl SocketServer {
         path: &str,
         commands: &AgentCommands,
         queries: &AgentQueries,
+        stamped: &StampedCommands,
         max_replay: usize,
     ) -> Result<Self> {
         // Remove stale socket file.
@@ -611,6 +683,7 @@ impl SocketServer {
         let accept_replay = Arc::clone(&replay_buffer);
         let accept_cmds = Arc::clone(commands);
         let accept_queries = Arc::clone(queries);
+        let accept_stamped = Arc::clone(stamped);
         let accept_next_id = Arc::clone(&next_client_id);
         let accept_listener = listener
             .try_clone()
@@ -656,6 +729,7 @@ impl SocketServer {
                             // Spawn reader thread for this client.
                             let cmds = Arc::clone(&accept_cmds);
                             let qry = Arc::clone(&accept_queries);
+                            let stmp = Arc::clone(&accept_stamped);
                             thread::Builder::new()
                                 .name("agent-socket-reader".into())
                                 .spawn(move || {
@@ -664,7 +738,16 @@ impl SocketServer {
                                         let Ok(line) = line else { break };
                                         match parse_message(&line) {
                                             Some(ParsedMessage::Command(cmd)) => {
-                                                if let Ok(mut q) = cmds.lock() {
+                                                // Commands that need client context go
+                                                // to the stamped queue.
+                                                if needs_client_context(&cmd) {
+                                                    if let Ok(mut q) = stmp.lock() {
+                                                        q.push_back(StampedCommand {
+                                                            client_id,
+                                                            command: cmd,
+                                                        });
+                                                    }
+                                                } else if let Ok(mut q) = cmds.lock() {
                                                     q.push_back(cmd);
                                                 }
                                             }
@@ -699,6 +782,7 @@ impl SocketServer {
             next_client_id,
             max_replay,
             path: path.to_string(),
+            registry: new_registry(),
         })
     }
 
@@ -733,6 +817,41 @@ impl SocketServer {
                 break;
             }
         }
+    }
+
+    /// Send a JSON message to a specific client by ID.
+    /// Returns `true` if the client was found and the write succeeded.
+    pub fn send_to_client(&self, client_id: u64, json_line: &str) -> bool {
+        let msg = format!("{json_line}\n");
+        let mut clients = self.clients.lock().expect("socket clients mutex poisoned");
+        for client in clients.iter_mut() {
+            if client.id == client_id {
+                let ok = client.stream.write_all(msg.as_bytes()).is_ok()
+                    && client.stream.flush().is_ok();
+                return ok;
+            }
+        }
+        false
+    }
+
+    /// Broadcast a JSON message to all connected clients EXCEPT the sender.
+    pub fn broadcast_except(&self, sender_id: u64, json_line: &str) {
+        let msg = format!("{json_line}\n");
+        let mut clients = self.clients.lock().expect("socket clients mutex poisoned");
+        clients.retain_mut(|client| {
+            if client.id == sender_id {
+                return true; // skip sender, but keep them
+            }
+            client.stream.write_all(msg.as_bytes()).is_ok() && client.stream.flush().is_ok()
+        });
+    }
+
+    /// Look up a client_id by registered agent name.
+    pub fn resolve_agent(&self, name: &str) -> Option<u64> {
+        let reg = self.registry.lock().expect("registry mutex poisoned");
+        reg.values()
+            .find(|r| r.name == name)
+            .map(|r| r.client_id)
     }
 
     /// Path to the socket file.
@@ -909,5 +1028,97 @@ mod tests {
         let line = r#"@@HEXCAP:{"action":"pause"}"#;
         let msg = parse_message(line).expect("should parse");
         assert!(matches!(msg, ParsedMessage::Command(AgentCommand::Pause)));
+    }
+
+    #[test]
+    fn parse_register_command() {
+        let line =
+            r#"@@HEXCAP:{"action":"register","name":"copilot","capabilities":["analyze","filter"]}"#;
+        let cmd = parse_command(line).expect("should parse");
+        assert!(matches!(
+            cmd,
+            AgentCommand::Register { name, capabilities }
+                if name == "copilot" && capabilities == vec!["analyze", "filter"]
+        ));
+    }
+
+    #[test]
+    fn parse_register_no_capabilities() {
+        let line = r#"@@HEXCAP:{"action":"register","name":"opencode"}"#;
+        let cmd = parse_command(line).expect("should parse");
+        assert!(matches!(
+            cmd,
+            AgentCommand::Register { name, capabilities }
+                if name == "opencode" && capabilities.is_empty()
+        ));
+    }
+
+    #[test]
+    fn parse_chat_command() {
+        let line = r#"@@HEXCAP:{"action":"chat","message":"found suspicious traffic"}"#;
+        let cmd = parse_command(line).expect("should parse");
+        assert!(
+            matches!(cmd, AgentCommand::Chat { message } if message == "found suspicious traffic")
+        );
+    }
+
+    #[test]
+    fn parse_ask_command() {
+        let line = r#"@@HEXCAP:{"action":"ask","to":"copilot","request_id":"a1","message":"analyze packet 42"}"#;
+        let cmd = parse_command(line).expect("should parse");
+        assert!(matches!(
+            cmd,
+            AgentCommand::Ask { to, request_id, message }
+                if to == "copilot" && request_id == "a1" && message == "analyze packet 42"
+        ));
+    }
+
+    #[test]
+    fn parse_reply_command() {
+        let line = r#"@@HEXCAP:{"action":"reply","to":"opencode","request_id":"a1","message":"it's a retransmission"}"#;
+        let cmd = parse_command(line).expect("should parse");
+        assert!(matches!(
+            cmd,
+            AgentCommand::Reply { to, request_id, message }
+                if to == "opencode" && request_id == "a1" && message == "it's a retransmission"
+        ));
+    }
+
+    #[test]
+    fn parse_query_agents() {
+        let line = r#"@@HEXCAP:{"type":"query","id":"r6","query":"agents"}"#;
+        let msg = parse_message(line).expect("should parse");
+        assert!(matches!(
+            msg,
+            ParsedMessage::Query {
+                id,
+                kind: QueryKind::Agents
+            } if id == "r6"
+        ));
+    }
+
+    #[test]
+    fn needs_client_context_routing() {
+        assert!(needs_client_context(&AgentCommand::Register {
+            name: "test".into(),
+            capabilities: vec![],
+        }));
+        assert!(needs_client_context(&AgentCommand::Chat {
+            message: "hi".into(),
+        }));
+        assert!(needs_client_context(&AgentCommand::Ask {
+            to: "x".into(),
+            request_id: "1".into(),
+            message: "y".into(),
+        }));
+        assert!(needs_client_context(&AgentCommand::Reply {
+            to: "x".into(),
+            request_id: "1".into(),
+            message: "y".into(),
+        }));
+        assert!(!needs_client_context(&AgentCommand::Pause));
+        assert!(!needs_client_context(&AgentCommand::Filter {
+            value: "tcp".into(),
+        }));
     }
 }

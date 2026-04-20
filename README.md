@@ -64,8 +64,8 @@ terminal.
 - **Agent ANSI stripping** — ANSI escape sequences stripped from agent output before display
 - **Draggable agent pane** — mouse drag on pane border resizes (20%-80% range)
 - **Bidirectional agent socket** — agents send `@@HEXCAP:` commands and queries back via Unix socket; per-client replay on connect
-- **Agent commands** — agents control the TUI via `@@HEXCAP:` protocol (filter, goto, pause, export, interface, etc.)
-- **Agent queries** — agents request data via `@@HEXCAP:{"type":"query",...}` and receive JSON responses (packets, flows, stats, decode, stream, status, interfaces)
+- **Agent commands** — agents control the TUI via `@@HEXCAP:` protocol (filter, goto, pause, export, interface, register, chat, ask, reply, etc.)
+- **Agent queries** — agents request data via `@@HEXCAP:{"type":"query",...}` and receive JSON responses (packets, flows, stats, decode, stream, status, interfaces, agents)
 
 ## Install
 
@@ -185,8 +185,34 @@ Supported queries:
 | `stream` | `flow` | TCP payload for a flow |
 | `status` | — | TUI state (packets, view, filters) |
 | `interfaces` | — | Available network interfaces |
+| `agents` | — | Registered agents (name, capabilities) |
 
 Responses are JSON lines: `{"id":"r1","type":"response","data":...}`
+
+### Agent Registry & Relay
+
+Agents can register with a name and discover each other:
+
+```bash
+# Register with hexcap
+echo '@@HEXCAP:{"action":"register","name":"copilot","capabilities":["analyze"]}' | socat - UNIX:/tmp/hexcap_*.sock
+
+# List registered agents
+echo '@@HEXCAP:{"type":"query","id":"r1","query":"agents"}' | socat - UNIX:/tmp/hexcap_*.sock
+
+# Broadcast chat to all other agents
+echo '@@HEXCAP:{"action":"chat","message":"found suspicious traffic on port 443"}' | socat - UNIX:/tmp/hexcap_*.sock
+
+# Send directed message to a named agent
+echo '@@HEXCAP:{"action":"ask","to":"copilot","request_id":"a1","message":"analyze packet 42"}' | socat - UNIX:/tmp/hexcap_*.sock
+
+# Reply to an ask
+echo '@@HEXCAP:{"action":"reply","to":"opencode","request_id":"a1","message":"it is a retransmission"}' | socat - UNIX:/tmp/hexcap_*.sock
+```
+
+Chat messages arrive as: `{"type":"chat","from":"copilot","message":"..."}`
+Ask messages arrive as: `{"type":"ask","from":"opencode","request_id":"a1","message":"..."}`
+Reply messages arrive as: `{"type":"reply","from":"copilot","request_id":"a1","message":"..."}`
 
 ## Keybindings
 

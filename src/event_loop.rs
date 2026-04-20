@@ -130,11 +130,20 @@ fn execute_agent_command(app: &mut App, cmd: agent::AgentCommand) {
                 app.set_status(format!("Agent: packet #{id} not found"));
             }
         }
+        // These are routed through the stamped command queue, not here.
+        AgentCommand::Register { .. }
+        | AgentCommand::Chat { .. }
+        | AgentCommand::Ask { .. }
+        | AgentCommand::Reply { .. } => {}
     }
 }
 
 /// Execute a query against the current app state and return a JSON value.
-fn execute_query(app: &App, kind: &agent::QueryKind) -> serde_json::Value {
+fn execute_query(
+    app: &App,
+    kind: &agent::QueryKind,
+    registry: Option<&agent::AgentRegistry>,
+) -> serde_json::Value {
     use agent::QueryKind;
     match kind {
         QueryKind::Packets { filter, limit } => {
@@ -219,6 +228,108 @@ fn execute_query(app: &App, kind: &agent::QueryKind) -> serde_json::Value {
                 .map(|ifaces| serde_json::to_value(&ifaces).unwrap_or_default())
                 .unwrap_or(serde_json::json!([]))
         }
+        QueryKind::Agents => {
+            if let Some(reg) = registry {
+                let reg = reg.lock().expect("registry mutex poisoned");
+                let agents: Vec<&agent::AgentRegistration> = reg.values().collect();
+                serde_json::to_value(&agents).unwrap_or_default()
+            } else {
+                serde_json::json!([])
+            }
+        }
+    }
+}
+
+/// Execute a stamped command (one that needs client_id context for routing).
+fn execute_stamped_command(
+    app: &mut App,
+    server: &agent::SocketServer,
+    sc: agent::StampedCommand,
+) {
+    use agent::AgentCommand;
+    match sc.command {
+        AgentCommand::Register { name, capabilities } => {
+            let reg = agent::AgentRegistration {
+                name: name.clone(),
+                client_id: sc.client_id,
+                capabilities,
+            };
+            if let Ok(mut registry) = server.registry.lock() {
+                registry.insert(sc.client_id, reg);
+            }
+            app.set_status(format!("Agent '{name}' registered"));
+        }
+        AgentCommand::Chat { message } => {
+            // Look up sender name from registry.
+            let sender = server
+                .registry
+                .lock()
+                .ok()
+                .and_then(|r| r.get(&sc.client_id).map(|a| a.name.clone()))
+                .unwrap_or_else(|| format!("client:{}", sc.client_id));
+            let msg = serde_json::json!({
+                "type": "chat",
+                "from": sender,
+                "message": message,
+            });
+            let json = serde_json::to_string(&msg).unwrap_or_default();
+            server.broadcast_except(sc.client_id, &json);
+            app.set_status(format!("[{sender}] {message}"));
+        }
+        AgentCommand::Ask {
+            to,
+            request_id,
+            message,
+        } => {
+            let sender = server
+                .registry
+                .lock()
+                .ok()
+                .and_then(|r| r.get(&sc.client_id).map(|a| a.name.clone()))
+                .unwrap_or_else(|| format!("client:{}", sc.client_id));
+            if let Some(target_id) = server.resolve_agent(&to) {
+                let msg = serde_json::json!({
+                    "type": "ask",
+                    "from": sender,
+                    "request_id": request_id,
+                    "message": message,
+                });
+                let json = serde_json::to_string(&msg).unwrap_or_default();
+                if !server.send_to_client(target_id, &json) {
+                    app.set_status(format!("Agent: failed to reach '{to}'"));
+                }
+            } else {
+                app.set_status(format!("Agent: unknown agent '{to}'"));
+            }
+        }
+        AgentCommand::Reply {
+            to,
+            request_id,
+            message,
+        } => {
+            let sender = server
+                .registry
+                .lock()
+                .ok()
+                .and_then(|r| r.get(&sc.client_id).map(|a| a.name.clone()))
+                .unwrap_or_else(|| format!("client:{}", sc.client_id));
+            if let Some(target_id) = server.resolve_agent(&to) {
+                let msg = serde_json::json!({
+                    "type": "reply",
+                    "from": sender,
+                    "request_id": request_id,
+                    "message": message,
+                });
+                let json = serde_json::to_string(&msg).unwrap_or_default();
+                if !server.send_to_client(target_id, &json) {
+                    app.set_status(format!("Agent: failed to reach '{to}'"));
+                }
+            } else {
+                app.set_status(format!("Agent: unknown agent '{to}'"));
+            }
+        }
+        // Non-stamped commands don't end up here.
+        _ => {}
     }
 }
 
@@ -234,6 +345,7 @@ pub fn run_loop(
     agent_output: &agent::AgentOutput,
     agent_commands: &agent::AgentCommands,
     agent_queries: &agent::AgentQueries,
+    stamped_commands: &agent::StampedCommands,
 ) -> Result<()> {
     let mut refresh_counter: u32 = 0;
     let mut dns_counter: u32 = 0;
@@ -277,6 +389,7 @@ pub fn run_loop(
                             &path,
                             agent_commands,
                             agent_queries,
+                            stamped_commands,
                             a.max_packets,
                         ) {
                             Ok(srv) => {
@@ -388,6 +501,7 @@ pub fn run_loop(
                         &path,
                         agent_commands,
                         agent_queries,
+                        stamped_commands,
                         a.max_packets,
                     ) {
                         Ok(srv) => {
@@ -432,7 +546,8 @@ pub fn run_loop(
             if !queries.is_empty() {
                 let a = app.lock().expect("app mutex poisoned");
                 for query in queries {
-                    let data = execute_query(&a, &query.kind);
+                    let registry = socket_server.as_ref().map(|s| &s.registry);
+                    let data = execute_query(&a, &query.kind, registry);
                     let response = agent::QueryResponse {
                         id: query.request_id,
                         response_type: "response".into(),
@@ -441,6 +556,22 @@ pub fn run_loop(
                     if let Some(ref srv) = *socket_server {
                         srv.respond(query.client_id, &response);
                     }
+                }
+            }
+        }
+
+        // Drain and execute stamped commands (register/chat/ask/reply).
+        {
+            let cmds: Vec<agent::StampedCommand> = {
+                let mut q = stamped_commands.lock().expect("stamped commands mutex poisoned");
+                q.drain(..).collect()
+            };
+            if !cmds.is_empty()
+                && let Some(ref srv) = *socket_server
+            {
+                let mut app_guard = app.lock().expect("app mutex poisoned");
+                for sc in cmds {
+                    execute_stamped_command(&mut app_guard, srv, sc);
                 }
             }
         }
