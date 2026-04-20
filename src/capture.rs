@@ -14,6 +14,48 @@ pub struct CaptureHandle {
     stop: Arc<AtomicBool>,
 }
 
+/// A group of capture handles for multi-interface capture.
+pub struct CaptureGroup {
+    handles: Vec<CaptureHandle>,
+}
+
+impl CaptureGroup {
+    /// Start capturing on multiple interfaces.
+    /// Each interface gets its own capture thread sharing the same App state.
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn start(
+        interfaces: &[String],
+        filter: Option<&str>,
+        app: Arc<Mutex<App>>,
+        counter: Arc<std::sync::atomic::AtomicU64>,
+    ) -> Result<Self> {
+        let mut handles = Vec::new();
+        let iface_names: Vec<String> = interfaces.to_vec();
+        for name in &iface_names {
+            let h =
+                CaptureHandle::start_named(name, filter, Arc::clone(&app), Arc::clone(&counter))?;
+            handles.push(h);
+        }
+        if let Ok(mut a) = app.lock() {
+            a.interface_name = iface_names.join(",");
+        }
+        Ok(Self { handles })
+    }
+
+    /// Signal all capture threads to stop.
+    pub fn stop(&self) {
+        for h in &self.handles {
+            h.stop();
+        }
+    }
+}
+
+impl Drop for CaptureGroup {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 impl CaptureHandle {
     pub fn start(
         interface: Option<&str>,
@@ -36,6 +78,31 @@ impl CaptureHandle {
             a.interface_name.clone_from(&device.name);
         }
 
+        let counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        Self::start_on_device(device, filter, app, counter)
+    }
+
+    /// Start capture on a named interface with a shared counter.
+    fn start_named(
+        name: &str,
+        filter: Option<&str>,
+        app: Arc<Mutex<App>>,
+        counter: Arc<std::sync::atomic::AtomicU64>,
+    ) -> Result<Self> {
+        let device = Device::list()
+            .context("failed to list devices")?
+            .into_iter()
+            .find(|d| d.name == name)
+            .with_context(|| format!("interface '{name}' not found"))?;
+        Self::start_on_device(device, filter, app, counter)
+    }
+
+    fn start_on_device(
+        device: Device,
+        filter: Option<&str>,
+        app: Arc<Mutex<App>>,
+        counter: Arc<std::sync::atomic::AtomicU64>,
+    ) -> Result<Self> {
         info!(interface = %device.name, "starting capture");
 
         let mut cap = Capture::from_device(device)
@@ -55,15 +122,14 @@ impl CaptureHandle {
         let stop_clone = Arc::clone(&stop);
 
         let handle = thread::spawn(move || {
-            let mut counter: u64 = 0;
             loop {
                 if stop_clone.load(Ordering::Relaxed) {
                     break;
                 }
                 match cap.next_packet() {
                     Ok(pkt) => {
-                        counter += 1;
-                        let parsed = packet::parse_packet(counter, pkt.data);
+                        let id = counter.fetch_add(1, Ordering::Relaxed) + 1;
+                        let parsed = packet::parse_packet(id, pkt.data);
                         if let Ok(mut app) = app.lock() {
                             app.push_packet(parsed);
                         }

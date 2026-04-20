@@ -57,6 +57,7 @@ struct Cli {
     read: Option<String>,
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -93,7 +94,7 @@ fn main() -> Result<()> {
     )));
 
     // Either read from pcap file or start live capture.
-    let mut capture = if let Some(ref path) = cli.read {
+    let (mut capture, capture_group) = if let Some(ref path) = cli.read {
         let raw_packets = export::read_pcap(std::path::Path::new(path))?;
         let mut a = app.lock().expect("app mutex poisoned");
         for (i, (timestamp, data)) in raw_packets.into_iter().enumerate() {
@@ -143,13 +144,30 @@ fn main() -> Result<()> {
             }
         }
         drop(a);
-        None
+        (None, None)
+    } else if let Some(ref iface) = cli.interface {
+        if iface.contains(',') {
+            // Multi-interface capture.
+            let names: Vec<String> = iface.split(',').map(|s| s.trim().to_string()).collect();
+            let counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let group = capture::CaptureGroup::start(
+                &names,
+                cli.filter.as_deref(),
+                Arc::clone(&app),
+                counter,
+            )?;
+            (None, Some(group))
+        } else {
+            let h = CaptureHandle::start(
+                Some(iface.as_str()),
+                cli.filter.as_deref(),
+                Arc::clone(&app),
+            )?;
+            (Some(h), None)
+        }
     } else {
-        Some(CaptureHandle::start(
-            cli.interface.as_deref(),
-            cli.filter.as_deref(),
-            Arc::clone(&app),
-        )?)
+        let h = CaptureHandle::start(None, cli.filter.as_deref(), Arc::clone(&app))?;
+        (Some(h), None)
     };
 
     let bpf_filter = cli.filter.clone();
@@ -164,6 +182,7 @@ fn main() -> Result<()> {
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
     drop(capture);
+    drop(capture_group);
 
     result
 }
