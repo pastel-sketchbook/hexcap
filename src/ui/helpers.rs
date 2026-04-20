@@ -101,8 +101,7 @@ pub fn is_ghostty() -> bool {
         return true;
     }
     if std::env::var("TERM_PROGRAM")
-        .map(|v| v.eq_ignore_ascii_case("ghostty"))
-        .unwrap_or(false)
+        .is_ok_and(|v| v.eq_ignore_ascii_case("ghostty"))
     {
         return true;
     }

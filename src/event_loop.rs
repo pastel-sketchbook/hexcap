@@ -18,7 +18,7 @@ fn execute_agent_command(app: &mut App, cmd: agent::AgentCommand) {
                 app.display_filter.clear();
                 app.set_status("Agent: filter cleared".into());
             } else {
-                app.display_filter = value.clone();
+                app.display_filter.clone_from(&value);
                 app.set_status(format!("Agent: filter \"{value}\""));
             }
         }
@@ -42,9 +42,9 @@ fn execute_agent_command(app: &mut App, cmd: agent::AgentCommand) {
             if let Some(ref path) = file {
                 // Validate: reject path traversal and absolute paths outside /tmp.
                 let p = std::path::Path::new(path);
-                let has_traversal = p.components().any(|c| {
-                    matches!(c, std::path::Component::ParentDir)
-                });
+                let has_traversal = p
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir));
                 if has_traversal {
                     app.set_status("Agent: export rejected (path traversal)".into());
                     return;
@@ -63,11 +63,11 @@ fn execute_agent_command(app: &mut App, cmd: agent::AgentCommand) {
             app.set_status(message);
         }
         AgentCommand::Bookmark { id } => {
-            if !app.bookmarks.remove(&id) {
+            if app.bookmarks.remove(&id) {
+                app.set_status(format!("Agent: unbookmarked #{id}"));
+            } else {
                 app.bookmarks.insert(id);
                 app.set_status(format!("Agent: bookmarked #{id}"));
-            } else {
-                app.set_status(format!("Agent: unbookmarked #{id}"));
             }
         }
         AgentCommand::Annotate { id, text } => {
@@ -128,9 +128,7 @@ fn execute_query(app: &App, kind: &agent::QueryKind) -> serde_json::Value {
             };
             serde_json::to_value(&packets).unwrap_or_default()
         }
-        QueryKind::Flows => {
-            serde_json::to_value(&app.flows).unwrap_or_default()
-        }
+        QueryKind::Flows => serde_json::to_value(&app.flows).unwrap_or_default(),
         QueryKind::Stats => {
             let total = app.packets.len();
             let mut proto_counts: std::collections::HashMap<String, usize> =
@@ -169,8 +167,7 @@ fn execute_query(app: &App, kind: &agent::QueryKind) -> serde_json::Value {
                     })
                     .flat_map(|p| {
                         // Extract TCP payload (skip headers).
-                        crate::hex::hex_dump_plain(&p.data)
-                            .into_bytes()
+                        crate::hex::hex_dump_plain(&p.data).into_bytes()
                     })
                     .collect();
                 let text = String::from_utf8_lossy(&payload);
@@ -249,7 +246,13 @@ pub fn run_loop(
                         srv.path().to_string()
                     } else {
                         let path = agent::default_socket_path();
-                        match agent::SocketServer::bind(&path, agent_commands, agent_queries, a.max_packets) {                            Ok(srv) => {
+                        match agent::SocketServer::bind(
+                            &path,
+                            agent_commands,
+                            agent_queries,
+                            a.max_packets,
+                        ) {
+                            Ok(srv) => {
                                 *socket_server = Some(srv);
                                 a.socket_path = Some(path.clone());
                                 path
@@ -310,11 +313,8 @@ pub fn run_loop(
 
                     if snapshot_ok {
                         let pcap_str = snapshot_path.to_string_lossy();
-                        let cmd = agent::expand_command(
-                            preset.command_template,
-                            &pcap_str,
-                            pkt_count,
-                        );
+                        let cmd =
+                            agent::expand_command(preset.command_template, &pcap_str, pkt_count);
                         a.set_status(format!("Spawning {}...", preset.name));
                         if let Ok(mut buf) = agent_output.lock() {
                             buf.clear();
@@ -357,7 +357,12 @@ pub fn run_loop(
                     a.set_status(msg);
                 } else {
                     let path = agent::default_socket_path();
-                    match agent::SocketServer::bind(&path, agent_commands, agent_queries, a.max_packets) {
+                    match agent::SocketServer::bind(
+                        &path,
+                        agent_commands,
+                        agent_queries,
+                        a.max_packets,
+                    ) {
                         Ok(srv) => {
                             *socket_server = Some(srv);
                             a.socket_path = Some(path.clone());
@@ -394,9 +399,7 @@ pub fn run_loop(
         // Drain and execute agent queries.
         {
             let queries: Vec<agent::AgentQuery> = {
-                let mut q = agent_queries
-                    .lock()
-                    .expect("agent queries mutex poisoned");
+                let mut q = agent_queries.lock().expect("agent queries mutex poisoned");
                 q.drain(..).collect()
             };
             if !queries.is_empty() {
@@ -429,7 +432,9 @@ pub fn run_loop(
             {
                 app_guard.set_status("Agent pipe exited".into());
             }
-            let pipe_alive = agent_pipe.as_mut().is_some_and(agent::AgentPipe::is_running);
+            let pipe_alive = agent_pipe
+                .as_mut()
+                .is_some_and(agent::AgentPipe::is_running);
 
             if pkt_count > agent_last_sent && (pipe_alive || socket_server.is_some()) {
                 for i in agent_last_sent..pkt_count {
@@ -498,7 +503,7 @@ pub fn run_loop(
                 }
                 Event::Mouse(mouse) => {
                     let mut app_guard = app.lock().expect("app mutex poisoned");
-                    let term_height = terminal.size().map(|s| s.height).unwrap_or(24);
+                    let term_height = terminal.size().map_or(24, |s| s.height);
                     keys::handle_mouse(&mut app_guard, mouse, term_height);
                 }
                 _ => {}

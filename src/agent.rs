@@ -120,7 +120,7 @@ pub fn resolve_binary(name: &str) -> Option<String> {
 
 /// Open an agent in a terminal split pane (right side).
 ///
-/// Supports Ghostty (AppleScript), tmux, WezTerm, and Zellij.
+/// Supports Ghostty (`AppleScript`), tmux, `WezTerm`, and Zellij.
 /// Sets `HEXCAP_SOCKET` in the agent's environment so it can send commands back.
 /// Returns `Ok(true)` if a split was opened, `Ok(false)` if no supported
 /// terminal was detected (caller should fall back to full-screen).
@@ -150,7 +150,9 @@ pub fn open_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
             .spawn()
     } else if env::var("ZELLIJ").is_ok() {
         Command::new("zellij")
-            .args(["action", "new-pane", "-d", "right", "--", "sh", "-c", &wrapped])
+            .args([
+                "action", "new-pane", "-d", "right", "--", "sh", "-c", &wrapped,
+            ])
             .spawn()
     } else if crate::ui::helpers::is_ghostty() {
         // Ghostty on macOS: AppleScript to split the focused terminal.
@@ -177,12 +179,10 @@ end tell"#
 /// Build the agent analysis prompt, referencing the pcap snapshot file.
 pub fn build_prompt(pcap_path: &str, packet_count: usize) -> String {
     format!(
-        "You have the hexcap skill. Use `hexcap read {pcap}`, `hexcap flows {pcap}`, \
-         `hexcap stats {pcap}`, and `hexcap stream {pcap}` to analyze the capture. \
-         The file contains {count} packets. Provide a summary of the traffic: \
+        "You have the hexcap skill. Use `hexcap read {pcap_path}`, `hexcap flows {pcap_path}`, \
+         `hexcap stats {pcap_path}`, and `hexcap stream {pcap_path}` to analyze the capture. \
+         The file contains {packet_count} packets. Provide a summary of the traffic: \
          protocols seen, notable flows, any anomalies or interesting patterns.",
-        pcap = pcap_path,
-        count = packet_count,
     )
 }
 
@@ -346,11 +346,9 @@ pub fn parse_message(line: &str) -> Option<ParsedMessage> {
     let json = line.strip_prefix(COMMAND_PREFIX)?;
     let trimmed = json.trim();
     match serde_json::from_str::<Envelope>(trimmed) {
-        Ok(Envelope::Query {
-            msg_type,
-            id,
-            kind,
-        }) if msg_type == "query" => Some(ParsedMessage::Query { id, kind }),
+        Ok(Envelope::Query { msg_type, id, kind }) if msg_type == "query" => {
+            Some(ParsedMessage::Query { id, kind })
+        }
         Ok(Envelope::Command(cmd)) => Some(ParsedMessage::Command(cmd)),
         // Query with wrong type field — ignore.
         Ok(Envelope::Query { .. }) => None,
@@ -536,10 +534,10 @@ pub fn default_socket_path() -> String {
     let random: u64 = {
         // Use timestamp nanos XORed with PID as a simple random source.
         // Not cryptographic, but sufficient to prevent casual guessing.
-        let nanos = std::time::SystemTime::now()
+        let nanos = u64::from(std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .subsec_nanos() as u64;
+            .subsec_nanos());
         nanos ^ (u64::from(std::process::id()) << 32)
     };
     std::env::temp_dir()
@@ -576,6 +574,7 @@ impl SocketServer {
     ///
     /// Each connected client gets a reader thread that parses incoming
     /// `@@HEXCAP:` command lines and pushes them to the shared command queue.
+    #[allow(clippy::too_many_lines)]
     pub fn bind(
         path: &str,
         commands: &AgentCommands,
@@ -619,17 +618,14 @@ impl SocketServer {
                     match accept_listener.accept() {
                         Ok((stream, _)) => {
                             let _ = stream.set_nonblocking(false);
-                            let client_id = accept_next_id.fetch_add(
-                                1,
-                                std::sync::atomic::Ordering::Relaxed,
-                            );
+                            let client_id =
+                                accept_next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             // Clone for broadcast list.
                             if let Ok(mut write_stream) = stream.try_clone() {
                                 // Replay buffered packets to this new client.
                                 let replay_ok = {
-                                    let buf = accept_replay
-                                        .lock()
-                                        .expect("replay buffer mutex poisoned");
+                                    let buf =
+                                        accept_replay.lock().expect("replay buffer mutex poisoned");
                                     let mut ok = true;
                                     for line in buf.iter() {
                                         let msg = format!("{line}\n");
@@ -715,8 +711,7 @@ impl SocketServer {
         let mut clients = self.clients.lock().expect("socket clients mutex poisoned");
         let msg = format!("{json_line}\n");
         clients.retain_mut(|client| {
-            client.stream.write_all(msg.as_bytes()).is_ok()
-                && client.stream.flush().is_ok()
+            client.stream.write_all(msg.as_bytes()).is_ok() && client.stream.flush().is_ok()
         });
     }
 

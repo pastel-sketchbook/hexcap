@@ -7,7 +7,9 @@ use crate::{capture, clipboard, hex, process};
 /// determine which pane (main vs agent) the scroll landed in.
 pub fn handle_mouse(app: &mut App, event: MouseEvent, term_height: u16) {
     let split_row = if app.show_agent_pane {
-        (u32::from(term_height) * u32::from(app.agent_pane_ratio) / 100) as u16
+        #[allow(clippy::cast_possible_truncation)]
+        let row = (u32::from(term_height) * u32::from(app.agent_pane_ratio) / 100) as u16;
+        row
     } else {
         term_height
     };
@@ -26,14 +28,12 @@ pub fn handle_mouse(app: &mut App, event: MouseEvent, term_height: u16) {
             MouseEventKind::Drag(crossterm::event::MouseButton::Left)
                 if app.agent_pane_dragging =>
             {
-                let new_ratio =
-                    (u32::from(event.row) * 100 / u32::from(term_height.max(1))) as u16;
+                #[allow(clippy::cast_possible_truncation)]
+                let new_ratio = (u32::from(event.row) * 100 / u32::from(term_height.max(1))) as u16;
                 app.agent_pane_ratio = new_ratio.clamp(20, 80);
                 return;
             }
-            MouseEventKind::Up(crossterm::event::MouseButton::Left)
-                if app.agent_pane_dragging =>
-            {
+            MouseEventKind::Up(crossterm::event::MouseButton::Left) if app.agent_pane_dragging => {
                 app.agent_pane_dragging = false;
                 return;
             }
@@ -48,7 +48,7 @@ pub fn handle_mouse(app: &mut App, event: MouseEvent, term_height: u16) {
                 app.agent_scroll = app.agent_scroll.saturating_sub(1);
             }
             MouseEventKind::ScrollUp => {
-                let total = app.agent_output.lock().map(|o| o.len()).unwrap_or(0);
+                let total = app.agent_output.lock().map_or(0, |o| o.len());
                 if app.agent_scroll < total {
                     app.agent_scroll += 1;
                 }
@@ -331,7 +331,7 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
             app.agent_scroll = app.agent_scroll.saturating_sub(1);
         }
         KeyCode::Char('K') if app.show_agent_pane => {
-            let total = app.agent_output.lock().map(|o| o.len()).unwrap_or(0);
+            let total = app.agent_output.lock().map_or(0, |o| o.len());
             if app.agent_scroll < total {
                 app.agent_scroll += 1;
             }

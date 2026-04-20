@@ -55,7 +55,11 @@ pub fn draw_agent_pane(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) 
     let paragraph = Paragraph::new(text)
         .block(block)
         .wrap(Wrap { trim: false })
-        .scroll((scroll_offset as u16, 0));
+        .scroll((
+            #[allow(clippy::cast_possible_truncation)]
+            {scroll_offset as u16},
+            0,
+        ));
 
     frame.render_widget(paragraph, area);
 }

@@ -590,7 +590,9 @@ fn is_light_bg(r: u8, g: u8, b: u8) -> bool {
 fn nudge(c: u8, delta: i16) -> u8 {
     // clamp(0, 255) guarantees the value is non-negative and fits in u8.
     #[allow(clippy::cast_sign_loss)]
-    { (i16::from(c) + delta).clamp(0, 255) as u8 }
+    {
+        (i16::from(c) + delta).clamp(0, 255) as u8
+    }
 }
 
 /// Patch the two Default themes (indices 0 and 8) so their `stripe_bg`,

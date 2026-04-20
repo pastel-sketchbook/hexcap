@@ -10,6 +10,7 @@ use crate::ui::helpers::{
 
 /// Render a sequence diagram overlay for the currently selected flow.
 #[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::too_many_lines)]
 pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
     let area = frame.area();
 
