@@ -230,6 +230,8 @@ pub struct App {
     pub agent_picker: Option<AgentPicker>,
     /// The command that was used to spawn the current agent (for display).
     pub agent_name: Option<String>,
+    /// Tmux pane ID of the agent split (for send-keys chat delivery).
+    pub agent_tmux_pane: Option<String>,
     /// Pending commands from agent → TUI.
     pub agent_commands: crate::agent::AgentCommands,
     /// Set to `Some(preset_index)` when user picks an agent; main loop consumes it.
@@ -400,6 +402,7 @@ impl App {
             agent_pane_dragging: false,
             agent_picker: None,
             agent_name: None,
+            agent_tmux_pane: None,
             agent_commands: crate::agent::new_commands(),
             pending_agent_spawn: None,
             socket_path: None,

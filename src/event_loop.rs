@@ -445,24 +445,30 @@ pub fn run_loop(
                             let use_ghostty = match preset.spawn_mode {
                                 agent::SpawnMode::Ghostty => true,
                                 agent::SpawnMode::Split => {
-                                    // tmux takes priority — TMUX env is definitive,
-                                    // while is_ghostty() pgrep fallback can false-positive
-                                    // when Ghostty runs alongside another terminal.
                                     if agent::is_tmux() { false } else { crate::ui::helpers::is_ghostty() }
                                 }
                                 _ => false,
                             };
-                            let split_result = if use_ghostty {
-                                agent::open_ghostty_split(&agent_bin, &sock_path, preset.initial_prompt)
+                            let mode_name = if use_ghostty { "Ghostty" } else { "tmux" };
+                            // Unify result: Ok(true) = opened, Ok(false) = not available.
+                            let split_ok = if use_ghostty {
+                                match agent::open_ghostty_split(&agent_bin, &sock_path, preset.initial_prompt) {
+                                    Ok(opened) => {
+                                        if opened { Ok(true) } else { Ok(false) }
+                                    }
+                                    Err(e) => Err(e),
+                                }
                             } else {
-                                agent::open_tmux_split(&agent_bin, &sock_path, preset.initial_prompt)
+                                match agent::open_tmux_split(&agent_bin, &sock_path, preset.initial_prompt) {
+                                    Ok(Some(pane_id)) => {
+                                        a.agent_tmux_pane = Some(pane_id);
+                                        Ok(true)
+                                    }
+                                    Ok(None) => Ok(false),
+                                    Err(e) => Err(e),
+                                }
                             };
-                            let mode_name = if use_ghostty {
-                                "Ghostty"
-                            } else {
-                                "tmux"
-                            };
-                            match split_result {
+                            match split_ok {
                                 Ok(true) => {
                                     a.agent_name = Some(preset.name.to_string());
                                     a.show_agent_pane = true;
@@ -517,7 +523,7 @@ pub fn run_loop(
             }
         }
 
-        // Send pending chat message via socket.
+        // Send pending chat message via socket + tmux send-keys.
         {
             let mut a = app.lock().expect("app mutex poisoned");
             if let Some(msg) = a.pending_chat_send.take() {
@@ -529,6 +535,12 @@ pub fn run_loop(
                 let json_str = serde_json::to_string(&json).unwrap_or_default();
                 if let Some(ref srv) = *socket_server {
                     srv.broadcast_except(0, &json_str);
+                }
+                // Deliver to agent via tmux send-keys so it appears as a new prompt.
+                if let Some(ref pane_id) = a.agent_tmux_pane {
+                    let _ = std::process::Command::new("tmux")
+                        .args(["send-keys", "-t", pane_id, &msg, "Enter"])
+                        .spawn();
                 }
             }
         }

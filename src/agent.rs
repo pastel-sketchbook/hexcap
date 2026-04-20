@@ -170,12 +170,13 @@ pub fn open_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
     }
 }
 
-/// Open an agent in a tmux split pane (right side, 60%).
+/// Open an agent in a tmux split pane (right side).
 ///
-/// Returns `Ok(true)` if tmux is available and the split was opened.
-pub fn open_tmux_split(agent_bin: &str, socket_path: &str, prompt: Option<&str>) -> Result<bool> {
+/// Returns `Ok(Some(pane_id))` with the tmux pane ID on success,
+/// `Ok(None)` if tmux is not available.
+pub fn open_tmux_split(agent_bin: &str, socket_path: &str, prompt: Option<&str>) -> Result<Option<String>> {
     if !is_tmux() {
-        return Ok(false);
+        return Ok(None);
     }
     // Persistent socat listener writes incoming socket messages to an inbox file
     // so the agent can read chat messages from hexcap.
@@ -203,11 +204,19 @@ pub fn open_tmux_split(agent_bin: &str, socket_path: &str, prompt: Option<&str>)
     } else {
         inner
     };
+    // -P -F prints the new pane ID so we can send-keys to it later.
     match Command::new("tmux")
-        .args(["split-window", "-h", "-l", "33%", "sh", "-c", &wrapped])
-        .spawn()
+        .args(["split-window", "-h", "-l", "33%", "-P", "-F", "#{pane_id}", "sh", "-c", &wrapped])
+        .output()
     {
-        Ok(_) => Ok(true),
+        Ok(output) if output.status.success() => {
+            let pane_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            Ok(Some(pane_id))
+        }
+        Ok(output) => Err(anyhow::anyhow!(
+            "tmux split failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )),
         Err(e) => Err(anyhow::anyhow!("tmux split failed: {e}")),
     }
 }
