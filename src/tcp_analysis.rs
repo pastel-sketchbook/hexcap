@@ -77,23 +77,17 @@ impl TcpAnalyser {
             + u32::from(is_fin);
 
         // --- Chat-level: connection lifecycle events ---
-        if is_syn && !is_ack {
+        let lifecycle_summary = match (is_syn, is_ack, is_fin) {
+            (true, false, _) => Some("TCP connection initiation (SYN)"),
+            (true, true, _) => Some("TCP SYN-ACK"),
+            (_, _, true) => Some("TCP connection closing (FIN)"),
+            _ => None,
+        };
+        if let Some(summary) = lifecycle_summary {
             items.push(ExpertItem {
                 severity: Severity::Chat,
                 group: ExpertGroup::Sequence,
-                summary: "TCP connection initiation (SYN)".into(),
-            });
-        } else if is_syn && is_ack {
-            items.push(ExpertItem {
-                severity: Severity::Chat,
-                group: ExpertGroup::Sequence,
-                summary: "TCP SYN-ACK".into(),
-            });
-        } else if is_fin {
-            items.push(ExpertItem {
-                severity: Severity::Chat,
-                group: ExpertGroup::Sequence,
-                summary: "TCP connection closing (FIN)".into(),
+                summary: summary.into(),
             });
         }
 

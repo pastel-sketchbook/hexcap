@@ -824,21 +824,34 @@ fn eval_comparison(pkt: &CapturedPacket, tok: &str) -> bool {
 
 /// Evaluate a length comparison like `>100`, `<=1500`, `==64`.
 fn eval_len_cmp(length: usize, expr: &str) -> bool {
-    if let Some(val) = expr.strip_prefix(">=") {
-        val.parse::<usize>().is_ok_and(|n| length >= n)
-    } else if let Some(val) = expr.strip_prefix("<=") {
-        val.parse::<usize>().is_ok_and(|n| length <= n)
-    } else if let Some(val) = expr.strip_prefix("==") {
-        val.parse::<usize>().is_ok_and(|n| length == n)
-    } else if let Some(val) = expr.strip_prefix("!=") {
-        val.parse::<usize>().is_ok_and(|n| length != n)
-    } else if let Some(val) = expr.strip_prefix('>') {
-        val.parse::<usize>().is_ok_and(|n| length > n)
-    } else if let Some(val) = expr.strip_prefix('<') {
-        val.parse::<usize>().is_ok_and(|n| length < n)
-    } else if let Some(val) = expr.strip_prefix('=') {
-        val.parse::<usize>().is_ok_and(|n| length == n)
+    let (op, val_str) = if let Some(v) = expr.strip_prefix(">=") {
+        (">=", v)
+    } else if let Some(v) = expr.strip_prefix("<=") {
+        ("<=", v)
+    } else if let Some(v) = expr.strip_prefix("==") {
+        ("==", v)
+    } else if let Some(v) = expr.strip_prefix("!=") {
+        ("!=", v)
+    } else if let Some(v) = expr.strip_prefix('>') {
+        (">", v)
+    } else if let Some(v) = expr.strip_prefix('<') {
+        ("<", v)
+    } else if let Some(v) = expr.strip_prefix('=') {
+        ("=", v)
     } else {
-        false
+        return false;
+    };
+
+    let Ok(n) = val_str.parse::<usize>() else {
+        return false;
+    };
+    match op {
+        ">=" => length >= n,
+        "<=" => length <= n,
+        "==" | "=" => length == n,
+        "!=" => length != n,
+        ">" => length > n,
+        "<" => length < n,
+        _ => false,
     }
 }
