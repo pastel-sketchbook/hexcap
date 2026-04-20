@@ -71,6 +71,7 @@ impl fmt::Display for ProtoFilter {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct App {
     pub packets: VecDeque<CapturedPacket>,
     pub max_packets: usize,
@@ -143,6 +144,9 @@ pub struct App {
     pub resize_column: usize,
     /// Extra width adjustments per column.
     pub column_widths: [i16; 6],
+
+    // -- Help overlay --
+    pub show_help: bool,
 }
 
 /// Aggregated info for a single bidirectional flow.
@@ -232,6 +236,7 @@ impl App {
             stream_scroll: 0,
             resize_column: 0,
             column_widths: [0; 6],
+            show_help: false,
         }
     }
 

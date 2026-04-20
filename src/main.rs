@@ -272,6 +272,15 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         return false;
     }
 
+    // Help overlay — Esc or ? closes it.
+    if app.show_help {
+        match code {
+            KeyCode::Esc | KeyCode::Char('?' | 'q') => app.show_help = false,
+            _ => {}
+        }
+        return false;
+    }
+
     match app.view {
         View::List => handle_list_key(app, code),
         View::Detail => {
@@ -334,6 +343,7 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Tab => app.next_resize_column(),
         KeyCode::Char('>') => app.widen_column(),
         KeyCode::Char('<') => app.narrow_column(),
+        KeyCode::Char('?') => app.show_help = true,
         _ => {}
     }
     false

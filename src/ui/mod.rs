@@ -2,6 +2,7 @@ mod detail;
 mod flows;
 mod footer;
 mod header;
+mod help;
 pub mod helpers;
 mod list;
 mod picker;
@@ -46,6 +47,11 @@ pub fn render(frame: &mut Frame, app: &App) {
     // Overlay: interface picker popup.
     if app.interface_picker.is_some() {
         picker::draw_interface_picker(frame, app, theme);
+    }
+
+    // Overlay: help popup.
+    if app.show_help {
+        help::draw_help(frame, theme);
     }
 }
 
