@@ -122,10 +122,13 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
             });
             let flow_col = FLOW_PALETTE[flow_idx];
 
-            let id_label = if app.bookmarks.contains(&p.id) {
-                format!("★{}", p.id)
-            } else {
-                format!("{}", p.id)
+            let has_bookmark = app.bookmarks.contains(&p.id);
+            let has_annotation = app.annotations.contains_key(&p.id);
+            let id_label = match (has_bookmark, has_annotation) {
+                (true, true) => format!("★✎{}", p.id),
+                (true, false) => format!("★{}", p.id),
+                (false, true) => format!("✎{}", p.id),
+                (false, false) => format!("{}", p.id),
             };
 
             let src_display = if app.dns_enabled {
@@ -190,6 +193,28 @@ pub fn draw_search_bar(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) 
         ),
         Span::styled(
             format!(" {}", app.search_query),
+            Style::default().fg(theme.fg),
+        ),
+        Span::styled("▌", Style::default().fg(theme.accent)),
+    ]);
+    let paragraph =
+        ratatui::widgets::Paragraph::new(text).style(Style::default().bg(theme.panel_bg));
+    frame.render_widget(paragraph, area);
+}
+
+/// Render the annotation input bar.
+pub fn draw_annotation_bar(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
+    let id = app.annotating.unwrap_or(0);
+    let text = Line::from(vec![
+        Span::styled(
+            format!(" ✎ #{id} "),
+            Style::default()
+                .fg(theme.key_fg)
+                .bg(theme.key_bg)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" {}", app.annotation_buf),
             Style::default().fg(theme.fg),
         ),
         Span::styled("▌", Style::default().fg(theme.accent)),

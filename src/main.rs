@@ -120,6 +120,28 @@ fn main() -> Result<()> {
                 }
             }
         }
+        // Load annotations sidecar if present.
+        let ann_path = export::annotation_path(pcap_path);
+        if ann_path.exists() {
+            match export::load_annotations(&ann_path) {
+                Ok(ann) => {
+                    let count = ann.len();
+                    a.annotations = ann;
+                    if count > 0 {
+                        let prev = a.status_message.as_ref().map(|(m, _)| m.clone());
+                        let msg = if let Some(prev_msg) = prev {
+                            format!("{prev_msg}, {count} annotations")
+                        } else {
+                            format!("Loaded {count} annotations")
+                        };
+                        a.set_status(msg);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to load annotations: {e}");
+                }
+            }
+        }
         drop(a);
         None
     } else {
@@ -289,6 +311,18 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         return false;
     }
 
+    // Annotation input mode.
+    if app.annotating.is_some() {
+        match code {
+            KeyCode::Esc => app.cancel_annotate(),
+            KeyCode::Enter => app.confirm_annotate(),
+            KeyCode::Backspace => app.annotate_pop(),
+            KeyCode::Char(ch) => app.annotate_push(ch),
+            _ => {}
+        }
+        return false;
+    }
+
     // Help overlay — Esc or ? closes it.
     if app.show_help {
         match code {
@@ -381,6 +415,7 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('?') => app.show_help = true,
         KeyCode::Char('I') => app.show_stats_summary = true,
         KeyCode::Char('x') => app.mark_or_diff(),
+        KeyCode::Char('a') => app.start_annotate(),
         _ => {}
     }
     false

@@ -72,16 +72,17 @@ fn draw_list_layout(frame: &mut Frame, app: &App) {
     let theme = app.theme();
     let area = frame.area();
 
-    let search_height = u16::from(app.input_mode == InputMode::Search);
+    let input_bar_height =
+        u16::from(app.input_mode == InputMode::Search || app.annotating.is_some());
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),             // header
-            Constraint::Length(1),             // stats row
-            Constraint::Min(5),                // packet table (flexible)
-            Constraint::Length(search_height), // search bar (conditional)
-            Constraint::Length(1),             // footer
+            Constraint::Length(3),                // header
+            Constraint::Length(1),                // stats row
+            Constraint::Min(5),                   // packet table (flexible)
+            Constraint::Length(input_bar_height), // input bar (conditional)
+            Constraint::Length(1),                // footer
         ])
         .split(area);
 
@@ -90,6 +91,8 @@ fn draw_list_layout(frame: &mut Frame, app: &App) {
     list::draw_packet_table(frame, app, theme, chunks[2]);
     if app.input_mode == InputMode::Search {
         list::draw_search_bar(frame, app, theme, chunks[3]);
+    } else if app.annotating.is_some() {
+        list::draw_annotation_bar(frame, app, theme, chunks[3]);
     }
     footer::draw_footer(frame, app, theme, chunks[4]);
 }

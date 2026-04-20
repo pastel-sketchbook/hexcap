@@ -126,6 +126,14 @@ pub struct App {
     /// Set of bookmarked packet IDs.
     pub bookmarks: HashSet<u64>,
 
+    // -- Annotations --
+    /// User notes per packet ID.
+    pub annotations: HashMap<u64, String>,
+    /// When set, we're editing an annotation for this packet ID.
+    pub annotating: Option<u64>,
+    /// Text buffer for annotation input.
+    pub annotation_buf: String,
+
     // -- Capture timing --
     /// When capture started (or packets were loaded).
     pub capture_start: Instant,
@@ -242,6 +250,9 @@ impl App {
             interface_picker: None,
             pending_interface: None,
             bookmarks: HashSet::new(),
+            annotations: HashMap::new(),
+            annotating: None,
+            annotation_buf: String::new(),
             capture_start: Instant::now(),
             pps_counter: 0,
             pps: 0,
@@ -786,6 +797,48 @@ impl App {
         self.hex_scroll = self.hex_scroll.saturating_add(1);
     }
 
+    // -- Annotations ---------------------------------------------------------
+
+    /// Start editing an annotation for the selected packet.
+    pub fn start_annotate(&mut self) {
+        if let Some(pkt) = self.selected_packet() {
+            let id = pkt.id;
+            self.annotation_buf = self.annotations.get(&id).cloned().unwrap_or_default();
+            self.annotating = Some(id);
+        }
+    }
+
+    /// Confirm the annotation input.
+    pub fn confirm_annotate(&mut self) {
+        if let Some(id) = self.annotating.take() {
+            let text = self.annotation_buf.trim().to_string();
+            if text.is_empty() {
+                self.annotations.remove(&id);
+                self.set_status(format!("Annotation removed from #{id}"));
+            } else {
+                self.annotations.insert(id, text);
+                self.set_status(format!("Annotated #{id}"));
+            }
+            self.annotation_buf.clear();
+        }
+    }
+
+    /// Cancel annotation input.
+    pub fn cancel_annotate(&mut self) {
+        self.annotating = None;
+        self.annotation_buf.clear();
+    }
+
+    /// Push a char into annotation buffer.
+    pub fn annotate_push(&mut self, ch: char) {
+        self.annotation_buf.push(ch);
+    }
+
+    /// Pop a char from annotation buffer.
+    pub fn annotate_pop(&mut self) {
+        self.annotation_buf.pop();
+    }
+
     pub fn scroll_up(&mut self) {
         self.hex_scroll = self.hex_scroll.saturating_sub(1);
     }
@@ -935,12 +988,24 @@ impl App {
                 if let Err(e) = crate::export::save_bookmarks(&bm_path, &self.bookmarks) {
                     return format!("Exported {n} packets but bookmark save failed: {e}");
                 }
-                let bm_note = if self.bookmarks.is_empty() {
+                // Save annotations sidecar.
+                let ann_path = crate::export::annotation_path(&path);
+                if let Err(e) = crate::export::save_annotations(&ann_path, &self.annotations) {
+                    return format!("Exported {n} packets but annotation save failed: {e}");
+                }
+                let mut extras = Vec::new();
+                if !self.bookmarks.is_empty() {
+                    extras.push(format!("{} bookmarks", self.bookmarks.len()));
+                }
+                if !self.annotations.is_empty() {
+                    extras.push(format!("{} annotations", self.annotations.len()));
+                }
+                let note = if extras.is_empty() {
                     String::new()
                 } else {
-                    format!(" ({} bookmarks)", self.bookmarks.len())
+                    format!(" ({})", extras.join(", "))
                 };
-                format!("Exported {n} packets{bm_note} to {}", path.display())
+                format!("Exported {n} packets{note} to {}", path.display())
             }
             Err(e) => format!("Export failed: {e}"),
         }

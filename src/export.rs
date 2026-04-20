@@ -154,6 +154,50 @@ pub fn load_bookmarks(path: &Path) -> Result<std::collections::HashSet<u64>> {
     Ok(set)
 }
 
+/// Annotation sidecar path.
+#[must_use]
+pub fn annotation_path(pcap_path: &Path) -> std::path::PathBuf {
+    pcap_path.with_extension("pcap.annotations")
+}
+
+/// Save annotations to a sidecar file (one `id\ttext` per line).
+pub fn save_annotations(
+    path: &Path,
+    annotations: &std::collections::HashMap<u64, String>,
+) -> Result<()> {
+    if annotations.is_empty() {
+        let _ = std::fs::remove_file(path);
+        return Ok(());
+    }
+    let mut ids: Vec<u64> = annotations.keys().copied().collect();
+    ids.sort_unstable();
+    let mut content = String::new();
+    for id in &ids {
+        if let Some(text) = annotations.get(id) {
+            let _ = writeln!(content, "{id}\t{text}");
+        }
+    }
+    std::fs::write(path, content)
+        .with_context(|| format!("failed to write annotations to {}", path.display()))?;
+    Ok(())
+}
+
+/// Load annotations from a sidecar file.
+pub fn load_annotations(path: &Path) -> Result<std::collections::HashMap<u64, String>> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read annotations from {}", path.display()))?;
+    let mut map = std::collections::HashMap::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some((id_str, text)) = trimmed.split_once('\t')
+            && let Ok(id) = id_str.parse::<u64>()
+        {
+            map.insert(id, text.to_string());
+        }
+    }
+    Ok(map)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
