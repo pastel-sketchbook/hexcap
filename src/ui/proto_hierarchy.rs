@@ -248,8 +248,6 @@ pub fn draw_proto_hierarchy(frame: &mut Frame, app: &App, theme: &Theme) {
     let muted = Style::default().fg(theme.muted);
 
     // ── Protocol Hierarchy ──────────────────────────────────
-    lines.push(Line::from(Span::styled("Protocol Hierarchy", bold)));
-    lines.push(Line::from(""));
 
     for (depth, name, pkts, bytes, pkt_pct, _byte_pct) in &rows {
         let indent = "  ".repeat(*depth);
