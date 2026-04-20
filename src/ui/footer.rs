@@ -107,6 +107,7 @@ pub fn draw_footer(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
             Hint::new("Esc", " Back"),
             Hint::new("j/k", " Nav"),
             Hint::new("↵", " Filter"),
+            Hint::new("G", " Graph"),
             Hint::new("t", " Theme"),
         ],
         View::Stream => vec![
