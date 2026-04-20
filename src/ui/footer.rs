@@ -66,6 +66,9 @@ pub fn draw_footer(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         right_spans.push(muted_span(&format!("{} ", pf.name), theme));
         right_spans.push(muted_span("│ ", theme));
     }
+    right_spans.push(key_badge("?", theme));
+    right_spans.push(muted_span(" Help ", theme));
+    right_spans.push(muted_span("│ ", theme));
     right_spans.push(muted_span(&format!("{theme_name} "), theme));
     right_spans.push(muted_span(&format!("v{version} "), theme));
 
