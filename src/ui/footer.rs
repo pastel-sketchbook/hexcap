@@ -93,6 +93,7 @@ pub fn draw_footer(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
             Hint::new("m", " Mark"),
             Hint::new("D", " DNS"),
             Hint::new("\\", " Filter"),
+            Hint::new("A", " Agent"),
             Hint::new("t", " Theme"),
         ],
         View::Detail => vec![

@@ -4,7 +4,9 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use crate::app::App;
 use crate::packet::FlowKey;
 use crate::theme::Theme;
-use crate::ui::helpers::{FLOW_CENTER_WIDTH, FLOW_COL_WIDTH, FLOW_MAX_LABEL, FLOW_POPUP_WIDTH, POPUP_CHROME, POPUP_MARGIN};
+use crate::ui::helpers::{
+    FLOW_CENTER_WIDTH, FLOW_COL_WIDTH, FLOW_MAX_LABEL, FLOW_POPUP_WIDTH, POPUP_CHROME, POPUP_MARGIN,
+};
 
 /// Render a sequence diagram overlay for the currently selected flow.
 #[allow(clippy::cast_possible_truncation)]
@@ -80,7 +82,11 @@ pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
             pkt.src == *left || (pkt.src != *right && strip_port(&pkt.src) == strip_port(left));
 
         let (proto, flags, length) = build_info_parts(pkt);
-        let dir_color = if is_left_to_right { theme.accent } else { theme.tag };
+        let dir_color = if is_left_to_right {
+            theme.accent
+        } else {
+            theme.tag
+        };
 
         // Build multi-colored center spans: arrow + proto + [flags] + len + arrow
         let mut center_spans: Vec<Span> = Vec::new();

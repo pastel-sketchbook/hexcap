@@ -543,9 +543,7 @@ pub fn query_terminal_bg() -> Option<(u8, u8, u8)> {
     let mut buf = Vec::with_capacity(64);
     let mut byte = [0u8; 1];
     while std::time::Instant::now() < deadline {
-        let n = unsafe {
-            libc::read(fd, byte.as_mut_ptr().cast(), 1)
-        };
+        let n = unsafe { libc::read(fd, byte.as_mut_ptr().cast(), 1) };
         if n <= 0 {
             if !buf.is_empty() {
                 break;

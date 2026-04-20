@@ -46,9 +46,10 @@ impl Enrichment {
         if self.dns
             && let Some(ip) = parse_ip(addr)
         {
-            let hostname = self.dns_cache.entry(ip).or_insert_with(|| {
-                dns::resolve_blocking(ip).unwrap_or_default()
-            });
+            let hostname = self
+                .dns_cache
+                .entry(ip)
+                .or_insert_with(|| dns::resolve_blocking(ip).unwrap_or_default());
             if !hostname.is_empty() {
                 result = format!("{result} ({hostname})");
             }
@@ -56,9 +57,10 @@ impl Enrichment {
         if let Some(ref db) = self.geo_db
             && let Some(ip) = parse_ip(addr)
         {
-            let code = self.geo_cache.entry(ip).or_insert_with(|| {
-                db.country(ip).unwrap_or_default()
-            });
+            let code = self
+                .geo_cache
+                .entry(ip)
+                .or_insert_with(|| db.country(ip).unwrap_or_default());
             if !code.is_empty() {
                 result = format!("{result} [{code}]");
             }
@@ -115,7 +117,12 @@ fn write_json<T: Serialize>(value: &T, compact: bool) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Read a pcap file, decode packets, optionally filter, and output as JSON array.
-pub fn cmd_read(file: &str, filter: Option<&str>, limit: usize, enrich: &mut Enrichment) -> Result<()> {
+pub fn cmd_read(
+    file: &str,
+    filter: Option<&str>,
+    limit: usize,
+    enrich: &mut Enrichment,
+) -> Result<()> {
     let raw = export::read_pcap(Path::new(file))?;
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -388,7 +395,12 @@ struct StreamOutput {
 }
 
 /// Follow a TCP stream from a pcap file and output as JSON.
-pub fn cmd_stream(file: &str, flow_str: Option<&str>, compact: bool, enrich: &mut Enrichment) -> Result<()> {
+pub fn cmd_stream(
+    file: &str,
+    flow_str: Option<&str>,
+    compact: bool,
+    enrich: &mut Enrichment,
+) -> Result<()> {
     let raw = export::read_pcap(Path::new(file))?;
     let mut packets: Vec<CapturedPacket> = Vec::new();
 

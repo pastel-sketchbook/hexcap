@@ -1,3 +1,4 @@
+mod agent_pane;
 mod detail;
 mod diff;
 mod expert_overlay;
@@ -37,11 +38,27 @@ pub fn render(frame: &mut Frame, app: &App) {
         area,
     );
 
+    // Split for agent pane if visible.
+    let (main_area, agent_area) = if app.show_agent_pane {
+        let split = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+            .split(area);
+        (split[0], Some(split[1]))
+    } else {
+        (area, None)
+    };
+
     match app.view {
-        View::List => draw_list_layout(frame, app),
-        View::Detail => draw_detail_layout(frame, app),
-        View::Flows => draw_flows_layout(frame, app),
-        View::Stream => draw_stream_layout(frame, app),
+        View::List => draw_list_layout(frame, app, main_area),
+        View::Detail => draw_detail_layout(frame, app, main_area),
+        View::Flows => draw_flows_layout(frame, app, main_area),
+        View::Stream => draw_stream_layout(frame, app, main_area),
+    }
+
+    // Render agent pane if visible.
+    if let Some(agent_area) = agent_area {
+        agent_pane::draw_agent_pane(frame, app, theme, agent_area);
     }
 
     // Overlay: process picker popup.
@@ -86,9 +103,8 @@ pub fn render(frame: &mut Frame, app: &App) {
 }
 
 /// List layout: header | stats | table | search bar? | footer.
-fn draw_list_layout(frame: &mut Frame, app: &App) {
+fn draw_list_layout(frame: &mut Frame, app: &App, area: Rect) {
     let theme = app.theme();
-    let area = frame.area();
 
     let input_bar_height = u16::from(
         app.input_mode == InputMode::Search
@@ -126,9 +142,8 @@ fn draw_list_layout(frame: &mut Frame, app: &App) {
 }
 
 /// Detail layout: header | packet info | decoded fields | hex dump | footer.
-fn draw_detail_layout(frame: &mut Frame, app: &App) {
+fn draw_detail_layout(frame: &mut Frame, app: &App, area: Rect) {
     let theme = app.theme();
-    let area = frame.area();
 
     // Calculate decoded fields height dynamically (includes expert items).
     let decoded_count = app.selected_packet().map_or(0, |pkt| {
@@ -163,9 +178,8 @@ fn draw_detail_layout(frame: &mut Frame, app: &App) {
 }
 
 /// Flows layout: header | flows table | footer.
-fn draw_flows_layout(frame: &mut Frame, app: &App) {
+fn draw_flows_layout(frame: &mut Frame, app: &App, area: Rect) {
     let theme = app.theme();
-    let area = frame.area();
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -182,9 +196,8 @@ fn draw_flows_layout(frame: &mut Frame, app: &App) {
 }
 
 /// Stream layout: header | stream content | footer.
-fn draw_stream_layout(frame: &mut Frame, app: &App) {
+fn draw_stream_layout(frame: &mut Frame, app: &App, area: Rect) {
     let theme = app.theme();
-    let area = frame.area();
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)

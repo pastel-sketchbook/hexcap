@@ -1,3 +1,4 @@
+mod agent;
 mod app;
 mod capture;
 mod clipboard;
@@ -75,6 +76,14 @@ struct Cli {
     /// Enable reverse DNS resolution in headless/subcommand mode
     #[arg(long)]
     dns: bool,
+
+    /// Pipe captured packets as JSONL to a child process (e.g. "python agent.py")
+    #[arg(long)]
+    pipe: Option<String>,
+
+    /// Create a Unix domain socket to stream JSONL packets to external agents
+    #[arg(long)]
+    socket: Option<String>,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -174,7 +183,9 @@ fn main() -> Result<()> {
             ),
             Command::Flows { file } => headless::cmd_flows(&file, compact, &mut enrich),
             Command::Stats { file } => headless::cmd_stats(&file, compact, &mut enrich),
-            Command::Stream { file, flow } => headless::cmd_stream(&file, flow.as_deref(), compact, &mut enrich),
+            Command::Stream { file, flow } => {
+                headless::cmd_stream(&file, flow.as_deref(), compact, &mut enrich)
+            }
             Command::Decode { file, id } => headless::cmd_decode(&file, id, compact, &mut enrich),
             Command::Interfaces => headless::cmd_interfaces(compact),
         };
@@ -220,6 +231,44 @@ fn main() -> Result<()> {
         process_filter,
         cli.write.map(std::path::PathBuf::from),
     )));
+
+    // ── Agent pipe / socket setup ──────────────────────────────────────
+    let agent_output = app.lock().expect("app mutex poisoned").agent_output.clone();
+
+    let mut agent_pipe = if let Some(ref cmd) = cli.pipe {
+        match agent::AgentPipe::spawn(cmd, agent_output.clone()) {
+            Ok(pipe) => {
+                if let Ok(mut a) = app.lock() {
+                    a.show_agent_pane = true;
+                    a.set_status(format!("Agent pipe: {cmd}"));
+                }
+                Some(pipe)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to spawn agent pipe: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    let socket_server = if let Some(ref path) = cli.socket {
+        match agent::SocketServer::bind(path) {
+            Ok(srv) => {
+                if let Ok(mut a) = app.lock() {
+                    a.set_status(format!("Agent socket: {path}"));
+                }
+                Some(srv)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to bind agent socket: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // Load GeoIP database if provided, or auto-detect common filenames.
     let geoip_path = cli.geoip.clone().or_else(|| {
@@ -344,6 +393,8 @@ fn main() -> Result<()> {
         &mut capture,
         bpf_filter.as_deref(),
         geoip_db.as_ref(),
+        &mut agent_pipe,
+        &socket_server,
     );
 
     disable_raw_mode()?;
@@ -360,9 +411,12 @@ fn run_loop(
     capture: &mut Option<CaptureHandle>,
     bpf_filter: Option<&str>,
     geoip_db: Option<&Arc<geoip::GeoDb>>,
+    agent_pipe: &mut Option<agent::AgentPipe>,
+    socket_server: &Option<agent::SocketServer>,
 ) -> Result<()> {
     let mut refresh_counter: u32 = 0;
     let mut dns_counter: u32 = 0;
+    let mut agent_last_sent: usize = 0;
     loop {
         // Check for pending interface switch.
         let pending = {
@@ -390,6 +444,33 @@ fn run_loop(
             let mut app_guard = app.lock().expect("app mutex poisoned");
             app_guard.tick_status();
             app_guard.tick_bandwidth();
+
+            // Feed new packets to agent pipe/socket.
+            let pkt_count = app_guard.packets.len();
+
+            // Check if pipe process has died.
+            if let Some(pipe) = &mut *agent_pipe
+                && !pipe.is_running()
+            {
+                app_guard.set_status("Agent pipe exited".into());
+            }
+            let pipe_alive = agent_pipe.as_mut().is_some_and(|p| p.is_running());
+
+            if pkt_count > agent_last_sent && (pipe_alive || socket_server.is_some()) {
+                for i in agent_last_sent..pkt_count {
+                    if let Some(pkt) = app_guard.packets.get(i)
+                        && let Ok(json) = serde_json::to_string(pkt)
+                    {
+                        if pipe_alive && let Some(pipe) = &mut *agent_pipe {
+                            pipe.send(&json);
+                        }
+                        if let Some(srv) = &socket_server {
+                            srv.broadcast(&json);
+                        }
+                    }
+                }
+                agent_last_sent = pkt_count;
+            }
             refresh_counter += 1;
             if refresh_counter >= 100 {
                 refresh_counter = 0;
@@ -695,6 +776,16 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('T') => app.cycle_time_format(),
         KeyCode::Char('R') => app.toggle_time_reference(),
         KeyCode::Char(':') => app.start_goto(),
+        KeyCode::Char('A') => app.show_agent_pane = !app.show_agent_pane,
+        KeyCode::Char('J') if app.show_agent_pane => {
+            app.agent_scroll = app.agent_scroll.saturating_sub(1);
+        }
+        KeyCode::Char('K') if app.show_agent_pane => {
+            let total = app.agent_output.lock().map(|o| o.len()).unwrap_or(0);
+            if app.agent_scroll < total {
+                app.agent_scroll += 1;
+            }
+        }
         _ => {}
     }
     false

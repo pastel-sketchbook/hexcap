@@ -217,6 +217,12 @@ pub struct App {
     /// Packet ID set as time reference (t=0 point).
     pub time_reference: Option<u64>,
 
+    // -- Agent pane --
+    pub show_agent_pane: bool,
+    pub agent_output: crate::agent::AgentOutput,
+    /// Scroll offset within the agent pane.
+    pub agent_scroll: usize,
+
     // -- Go to packet --
     pub goto_buf: String,
 }
@@ -350,6 +356,9 @@ impl App {
             flow_graph_selected: 0,
             time_format: TimeFormat::Absolute,
             time_reference: None,
+            show_agent_pane: false,
+            agent_output: crate::agent::new_output(),
+            agent_scroll: 0,
             goto_buf: String::new(),
         }
     }

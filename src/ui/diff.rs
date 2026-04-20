@@ -16,7 +16,10 @@ pub fn draw_diff(frame: &mut Frame, app: &App, theme: &Theme) {
 
     let area = frame.area();
     let popup_w = DIFF_POPUP_WIDTH.min(area.width.saturating_sub(POPUP_MARGIN));
-    let popup_h = area.height.saturating_sub(POPUP_MARGIN).min(POPUP_MAX_HEIGHT);
+    let popup_h = area
+        .height
+        .saturating_sub(POPUP_MARGIN)
+        .min(POPUP_MAX_HEIGHT);
     let x = area.x + (area.width.saturating_sub(popup_w)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_h)) / 2;
     let popup = Rect::new(x, y, popup_w, popup_h);
