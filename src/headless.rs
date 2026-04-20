@@ -147,9 +147,16 @@ pub fn cmd_flows(file: &str) -> Result<()> {
             dst: pkt.dst.clone(),
             packet_count: 0,
             total_bytes: 0,
+            packets_a_to_b: 0,
+            bytes_a_to_b: 0,
+            packets_b_to_a: 0,
+            bytes_b_to_a: 0,
+            first_seen: Some(pkt.timestamp),
+            last_seen: None,
         });
         entry.packet_count += 1;
         entry.total_bytes += pkt.length as u64;
+        entry.last_seen = Some(pkt.timestamp);
     }
 
     let mut flow_list: Vec<&FlowInfo> = flows.values().collect();

@@ -216,6 +216,20 @@ pub struct FlowInfo {
     pub dst: String,
     pub packet_count: u64,
     pub total_bytes: u64,
+    /// Packets from src → dst.
+    pub packets_a_to_b: u64,
+    /// Bytes from src → dst.
+    pub bytes_a_to_b: u64,
+    /// Packets from dst → src.
+    pub packets_b_to_a: u64,
+    /// Bytes from dst → src.
+    pub bytes_b_to_a: u64,
+    /// Timestamp of the first packet in this flow (epoch secs).
+    #[serde(skip)]
+    pub first_seen: Option<std::time::SystemTime>,
+    /// Timestamp of the last packet in this flow (epoch secs).
+    #[serde(skip)]
+    pub last_seen: Option<std::time::SystemTime>,
 }
 
 /// Active process filter state.
@@ -528,12 +542,34 @@ impl App {
                 dst: pkt.dst.clone(),
                 packet_count: 0,
                 total_bytes: 0,
+                packets_a_to_b: 0,
+                bytes_a_to_b: 0,
+                packets_b_to_a: 0,
+                bytes_b_to_a: 0,
+                first_seen: None,
+                last_seen: None,
             });
-            self.flow_map.insert(flow, idx);
+            self.flow_map.insert(flow.clone(), idx);
             idx
         };
-        self.flows[flow_idx].packet_count += 1;
-        self.flows[flow_idx].total_bytes += pkt.length as u64;
+        let fi = &mut self.flows[flow_idx];
+        fi.packet_count += 1;
+        fi.total_bytes += pkt.length as u64;
+        fi.last_seen = Some(pkt.timestamp);
+        if fi.first_seen.is_none() {
+            fi.first_seen = Some(pkt.timestamp);
+        }
+        // Determine direction: does the packet's src match the flow's stored src?
+        // The flow key is normalized (sorted), so flow.0 == fi.src side.
+        let is_a_to_b = pkt.src == fi.src
+            || (pkt.src != fi.dst && pkt.src <= pkt.dst);
+        if is_a_to_b {
+            fi.packets_a_to_b += 1;
+            fi.bytes_a_to_b += pkt.length as u64;
+        } else {
+            fi.packets_b_to_a += 1;
+            fi.bytes_b_to_a += pkt.length as u64;
+        }
 
         self.packets.push_back(pkt);
         while self.packets.len() > self.max_packets {
