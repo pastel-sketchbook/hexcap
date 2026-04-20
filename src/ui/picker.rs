@@ -103,7 +103,7 @@ pub fn draw_interface_picker(frame: &mut Frame, app: &App, theme: &Theme) {
     };
 
     let area = frame.area();
-    let popup_width = 66.min(area.width.saturating_sub(2));
+    let popup_width = super::helpers::POPUP_WIDTH.min(area.width.saturating_sub(2));
     let popup_height = (area.height * 50 / 100).clamp(8, 20);
     let x = (area.width.saturating_sub(popup_width)) / 2;
     let y = (area.height.saturating_sub(popup_height)) / 2;

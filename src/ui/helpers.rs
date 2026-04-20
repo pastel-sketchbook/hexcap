@@ -7,6 +7,8 @@ use crate::theme::Theme;
 
 pub const MIN_TERM_WIDTH: u16 = 60;
 pub const MIN_TERM_HEIGHT: u16 = 10;
+/// Default popup overlay width (used by help, pickers, etc.).
+pub const POPUP_WIDTH: u16 = 66;
 
 /// Render a centered size warning if terminal is too small. Returns true if too small.
 pub fn render_size_guard(frame: &mut Frame, theme: &Theme) -> bool {
