@@ -206,6 +206,9 @@ pub struct App {
     // -- Protocol hierarchy overlay --
     pub show_proto_hierarchy: bool,
 
+    // -- Flow graph overlay --
+    pub show_flow_graph: bool,
+
     // -- Time display --
     pub time_format: TimeFormat,
     /// Packet ID set as time reference (t=0 point).
@@ -333,6 +336,7 @@ impl App {
             tcp_analyser: TcpAnalyser::new(),
             show_expert: false,
             show_proto_hierarchy: false,
+            show_flow_graph: false,
             time_format: TimeFormat::Absolute,
             time_reference: None,
             goto_buf: String::new(),

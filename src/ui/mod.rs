@@ -1,6 +1,7 @@
 mod detail;
 mod diff;
 mod expert_overlay;
+mod flow_graph;
 mod flows;
 mod footer;
 mod header;
@@ -76,6 +77,11 @@ pub fn render(frame: &mut Frame, app: &App) {
     // Overlay: protocol hierarchy.
     if app.show_proto_hierarchy {
         proto_hierarchy::draw_proto_hierarchy(frame, app, theme);
+    }
+
+    // Overlay: flow graph / sequence diagram.
+    if app.show_flow_graph {
+        flow_graph::draw_flow_graph(frame, app, theme);
     }
 }
 

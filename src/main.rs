@@ -569,6 +569,15 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         return false;
     }
 
+    // Flow graph overlay.
+    if app.show_flow_graph {
+        match code {
+            KeyCode::Esc | KeyCode::Char('G' | 'q') => app.show_flow_graph = false,
+            _ => {}
+        }
+        return false;
+    }
+
     // Diff overlay.
     if app.diff_pair.is_some() {
         match code {
@@ -661,6 +670,7 @@ fn handle_flows_key(app: &mut App, code: KeyCode) {
         KeyCode::Char('j') | KeyCode::Down => app.flow_next(),
         KeyCode::Char('k') | KeyCode::Up => app.flow_prev(),
         KeyCode::Enter => app.flow_select(),
+        KeyCode::Char('G') => app.show_flow_graph = true,
         KeyCode::Char('t') => app.next_theme(),
         _ => {}
     }
