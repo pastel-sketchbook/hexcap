@@ -31,6 +31,10 @@ terminal.
 - **Mouse support** — scroll wheel navigation in all views
 - **Column resizing** — adjust table column widths with `Tab`/`<`/`>`
 - **Adaptive footer** — key hints truncated to fit terminal width
+- **Semantic coloring** — RST (red), SYN (green), FIN (amber), ICMP/ARP/DNS tinted rows
+- **Packet diff** — mark two packets and compare hex dumps side-by-side
+- **Capture statistics** — protocol distribution, top talkers, top conversations popup
+- **Help overlay** — `?` shows all keybindings in a popup
 - **Vim keybindings** — j/k, g/G, d/u, Enter, Esc, /
 
 ## Install
@@ -96,6 +100,9 @@ sudo hexcap --max-packets 50000
 | `"`            | Jump to previous bookmark    |
 | `Tab`          | Cycle resize column          |
 | `<` / `>`     | Narrow / widen column        |
+| `x`            | Mark packet for diff / show diff |
+| `I`            | Capture statistics summary   |
+| `?`            | Show keybindings help        |
 | `t`            | Cycle theme                  |
 | `q`            | Quit                         |
 
@@ -170,6 +177,9 @@ src/
     picker.rs   — process + interface picker overlays
     stats.rs    — protocol counts, bandwidth sparkline, duration, PPS
     helpers.rs  — shared UI utilities
+    help.rs     — keyboard shortcut help overlay
+    stats_summary.rs — capture statistics summary overlay
+    diff.rs     — packet hex diff overlay
 ```
 
 See [docs/rationale/](docs/rationale/) for design decision rationale:
@@ -186,6 +196,7 @@ See [docs/rationale/](docs/rationale/) for design decision rationale:
 - [0011 — DNS Resolution](docs/rationale/0011_dns_resolution.md)
 - [0012 — TCP Stream and TLS Decode](docs/rationale/0012_tcp_stream_and_tls.md)
 - [0013 — Mouse, Columns, Footer](docs/rationale/0013_mouse_columns_footer.md)
+- [0014 — Export, Coloring, Overlays, Diff](docs/rationale/0014_export_coloring_overlays_diff.md)
 
 ## Development
 

@@ -16,7 +16,8 @@ Show captured packets in a scrollable TUI list, allow selecting a packet to
 view its raw bytes in a hexyl-style hex dump pane. Support filtering by
 protocol, process, and flow. Support interface switching, pcap export/import,
 clipboard copy, bookmarks, live bandwidth tracking, DNS resolution, TCP stream
-follow, TLS handshake decode, mouse scrolling, and column resizing.
+follow, TLS handshake decode, mouse scrolling, column resizing, semantic packet
+coloring, capture statistics, packet diff, and keyboard shortcut help.
 
 ## Build & Run
 
@@ -50,7 +51,7 @@ src/
   app.rs        — App state, View (List/Detail/Flows/Stream), ProcessFilter,
                   ProcessPicker, InterfacePicker, FlowInfo, bookmarks,
                   bandwidth tracking, page nav, column widths, DNS cache,
-                  stream data, payload search helpers
+                  stream data, payload search helpers, diff mark/pair
   capture.rs    — libpcap capture thread with AtomicBool stop, list_interfaces()
   clipboard.rs  — pbcopy/xclip clipboard helper
   config.rs     — theme persistence (TOML via directories crate)
@@ -76,6 +77,9 @@ src/
     stats.rs    — protocol counts, bytes, filter, flow indicator,
                   bandwidth sparkline, capture duration, packets/sec
     helpers.rs  — shared UI utilities (stripe, highlight, key_badge, muted_span)
+    help.rs     — keyboard shortcut help overlay
+    stats_summary.rs — capture statistics summary overlay
+    diff.rs     — packet hex diff overlay
 ```
 
 ## Theme System
@@ -110,6 +114,10 @@ and their light variants.
 - **Mouse support**: Scroll wheel for navigation across all views; no click-to-select.
 - **Column resizing**: `Tab`/`<`/`>` keyboard-driven; i16 deltas from base widths.
 - **Adaptive footer**: Priority-ordered key hints, truncated to fit available width.
+- **Semantic coloring**: TCP flags (RST=red, SYN=green, FIN=amber) + protocol tints; `tcp_flags: u8` on `CapturedPacket`.
+- **Packet diff**: `x` marks first packet, `x` again on second opens side-by-side hex diff overlay.
+- **Capture stats**: On-the-fly protocol distribution, top talkers, top conversations from packet buffer.
+- **Export auto-filename**: `w` without `--write` generates `hexcap_{unix_seconds}.pcap`.
 
 ## Conventions
 
