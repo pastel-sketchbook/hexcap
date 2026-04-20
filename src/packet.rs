@@ -84,7 +84,7 @@ impl CapturedPacket {
 }
 
 /// Extract port from address string. Handles `ip:port` and `[ipv6]:port`.
-fn extract_port_from_addr(addr: &str) -> Option<u16> {
+pub fn extract_port_from_addr(addr: &str) -> Option<u16> {
     if let Some(rest) = addr.strip_prefix('[') {
         // [ipv6]:port
         let after_bracket = rest.split(']').nth(1)?;
@@ -642,4 +642,87 @@ fn serialize_bytes_as_hex<S: serde::Serializer>(
 ) -> Result<S::Ok, S::Error> {
     let hex: Vec<String> = data.iter().map(|b| format!("{b:02x}")).collect();
     serializer.serialize_str(&hex.join(" "))
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers (used by both TUI and headless paths)
+// ---------------------------------------------------------------------------
+
+/// Extract TCP payload from a raw Ethernet frame.
+///
+/// Skips Ethernet header (14 bytes), IP header (variable), and TCP header (variable).
+pub fn extract_tcp_payload(data: &[u8]) -> Option<&[u8]> {
+    if data.len() < 14 {
+        return None;
+    }
+    let ethertype = u16::from_be_bytes([data[12], data[13]]);
+    let ip = &data[14..];
+    let ip_hdr_len = match ethertype {
+        0x0800 => {
+            // IPv4
+            if ip.is_empty() {
+                return None;
+            }
+            ((ip[0] & 0x0F) as usize) * 4
+        }
+        0x86DD => 40, // IPv6 fixed header
+        _ => return None,
+    };
+    if ip.len() < ip_hdr_len + 20 {
+        return None;
+    }
+    let tcp = &ip[ip_hdr_len..];
+    let tcp_hdr_len = ((tcp[12] >> 4) as usize) * 4;
+    if tcp.len() <= tcp_hdr_len {
+        return None; // No payload
+    }
+    Some(&tcp[tcp_hdr_len..])
+}
+
+/// Evaluate a display filter expression against a packet.
+///
+/// Tokens are space-separated (AND logic).  Supported:
+/// - Protocol: `tcp`, `udp`, `icmp`, `dns`, `arp`
+/// - Port:    `port:443`
+/// - IP:      `ip:10.0.0.1`
+/// - Flags:   `syn`, `rst`, `fin`
+/// - Negation: prefix any token with `!` (e.g. `!arp`, `!port:22`)
+pub fn matches_display_filter(pkt: &CapturedPacket, filter: &str) -> bool {
+    for token in filter.split_whitespace() {
+        let (negated, tok) = if let Some(rest) = token.strip_prefix('!') {
+            (true, rest)
+        } else {
+            (false, token)
+        };
+        let matched = match tok.to_ascii_lowercase().as_str() {
+            "tcp" => pkt.protocol == Protocol::Tcp,
+            "udp" => pkt.protocol == Protocol::Udp,
+            "icmp" => pkt.protocol == Protocol::Icmp,
+            "dns" => pkt.protocol == Protocol::Dns,
+            "arp" => pkt.protocol == Protocol::Arp,
+            "syn" => pkt.tcp_flags & 0x02 != 0,
+            "rst" => pkt.tcp_flags & 0x04 != 0,
+            "fin" => pkt.tcp_flags & 0x01 != 0,
+            other => {
+                if let Some(port_str) = other.strip_prefix("port:") {
+                    if let Ok(port) = port_str.parse::<u16>() {
+                        let src_port = extract_port_from_addr(&pkt.src);
+                        let dst_port = extract_port_from_addr(&pkt.dst);
+                        src_port == Some(port) || dst_port == Some(port)
+                    } else {
+                        false
+                    }
+                } else if let Some(ip_str) = other.strip_prefix("ip:") {
+                    pkt.src.starts_with(ip_str) || pkt.dst.starts_with(ip_str)
+                } else {
+                    // Unknown token — treat as no-match to surface typos.
+                    false
+                }
+            }
+        };
+        if negated == matched {
+            return false;
+        }
+    }
+    true
 }

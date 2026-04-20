@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::config;
-use crate::packet::{CapturedPacket, FlowKey, Protocol};
+use crate::packet::{
+    CapturedPacket, FlowKey, Protocol, extract_tcp_payload, matches_display_filter,
+};
 use crate::process::ProcessInfo;
 use crate::theme::{self, Theme};
 
@@ -1022,7 +1024,7 @@ impl App {
             PathBuf::from(format!("hexcap_{now}.pcap"))
         };
         let filtered = self.filtered_indices();
-        let packets: Vec<&crate::packet::CapturedPacket> = filtered
+        let packets: Vec<&CapturedPacket> = filtered
             .iter()
             .filter_map(|&i| self.packets.get(i))
             .collect();
@@ -1117,89 +1119,4 @@ fn payload_contains_hex(data: &[u8], query: &str) -> bool {
     }
     data.windows(pattern.len())
         .any(|window| window == pattern.as_slice())
-}
-
-/// Check whether a packet matches a Wireshark-style display filter expression.
-///
-/// Supported tokens (space-separated, all must match = AND):
-/// - Protocol: `tcp`, `udp`, `icmp`, `dns`, `arp`
-/// - Port:    `port:443`
-/// - IP:      `ip:10.0.0.1`
-/// - Flags:   `syn`, `rst`, `fin`
-/// - Negation: prefix any token with `!` (e.g. `!arp`, `!port:22`)
-fn matches_display_filter(pkt: &CapturedPacket, filter: &str) -> bool {
-    for token in filter.split_whitespace() {
-        let (negated, tok) = if let Some(rest) = token.strip_prefix('!') {
-            (true, rest)
-        } else {
-            (false, token)
-        };
-        let matched = match tok.to_ascii_lowercase().as_str() {
-            "tcp" => pkt.protocol == Protocol::Tcp,
-            "udp" => pkt.protocol == Protocol::Udp,
-            "icmp" => pkt.protocol == Protocol::Icmp,
-            "dns" => pkt.protocol == Protocol::Dns,
-            "arp" => pkt.protocol == Protocol::Arp,
-            "syn" => pkt.tcp_flags & 0x02 != 0,
-            "rst" => pkt.tcp_flags & 0x04 != 0,
-            "fin" => pkt.tcp_flags & 0x01 != 0,
-            other => {
-                if let Some(port_str) = other.strip_prefix("port:") {
-                    if let Ok(port) = port_str.parse::<u16>() {
-                        let src_port = extract_port(&pkt.src);
-                        let dst_port = extract_port(&pkt.dst);
-                        src_port == Some(port) || dst_port == Some(port)
-                    } else {
-                        false
-                    }
-                } else if let Some(ip_str) = other.strip_prefix("ip:") {
-                    pkt.src.starts_with(ip_str) || pkt.dst.starts_with(ip_str)
-                } else {
-                    // Unknown token — treat as no-match to surface typos.
-                    false
-                }
-            }
-        };
-        if negated == matched {
-            return false;
-        }
-    }
-    true
-}
-
-/// Extract the port number from an address string like `192.168.1.1:443` or `[::1]:80`.
-fn extract_port(addr: &str) -> Option<u16> {
-    let colon_pos = addr.rfind(':')?;
-    addr[colon_pos + 1..].parse().ok()
-}
-
-/// Extract TCP payload from a raw Ethernet frame.
-///
-/// Skips Ethernet header (14 bytes), IP header (variable), and TCP header (variable).
-fn extract_tcp_payload(data: &[u8]) -> Option<&[u8]> {
-    if data.len() < 14 {
-        return None;
-    }
-    let ethertype = u16::from_be_bytes([data[12], data[13]]);
-    let ip = &data[14..];
-    let ip_hdr_len = match ethertype {
-        0x0800 => {
-            // IPv4
-            if ip.is_empty() {
-                return None;
-            }
-            ((ip[0] & 0x0F) as usize) * 4
-        }
-        0x86DD => 40, // IPv6 fixed header
-        _ => return None,
-    };
-    if ip.len() < ip_hdr_len + 20 {
-        return None;
-    }
-    let tcp = &ip[ip_hdr_len..];
-    let tcp_hdr_len = ((tcp[12] >> 4) as usize) * 4;
-    if tcp.len() <= tcp_hdr_len {
-        return None; // No payload
-    }
-    Some(&tcp[tcp_hdr_len..])
 }

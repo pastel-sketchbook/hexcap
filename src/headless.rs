@@ -15,59 +15,9 @@ use serde::Serialize;
 use crate::app::FlowInfo;
 use crate::capture;
 use crate::export;
-use crate::packet::{self, CapturedPacket, FlowKey, Protocol};
-
-// ---------------------------------------------------------------------------
-// Display filter (reuse logic from app.rs — standalone version)
-// ---------------------------------------------------------------------------
-
-/// Evaluate a display filter expression against a packet.
-///
-/// Tokens are space-separated (AND logic).  Supported:
-///   tcp, udp, icmp, dns, arp, port:N, ip:ADDR, syn, rst, fin, !negation
-pub fn matches_display_filter(pkt: &CapturedPacket, filter: &str) -> bool {
-    for token in filter.split_whitespace() {
-        let (negated, tok) = if let Some(rest) = token.strip_prefix('!') {
-            (true, rest)
-        } else {
-            (false, token)
-        };
-        let matched = match tok.to_ascii_lowercase().as_str() {
-            "tcp" => pkt.protocol == Protocol::Tcp,
-            "udp" => pkt.protocol == Protocol::Udp,
-            "icmp" => pkt.protocol == Protocol::Icmp,
-            "dns" => pkt.protocol == Protocol::Dns,
-            "arp" => pkt.protocol == Protocol::Arp,
-            "syn" => pkt.tcp_flags & 0x02 != 0,
-            "rst" => pkt.tcp_flags & 0x04 != 0,
-            "fin" => pkt.tcp_flags & 0x01 != 0,
-            other => {
-                if let Some(port_str) = other.strip_prefix("port:") {
-                    if let Ok(port) = port_str.parse::<u16>() {
-                        let src_port = extract_port(&pkt.src);
-                        let dst_port = extract_port(&pkt.dst);
-                        src_port == Some(port) || dst_port == Some(port)
-                    } else {
-                        false
-                    }
-                } else if let Some(ip_str) = other.strip_prefix("ip:") {
-                    pkt.src.starts_with(ip_str) || pkt.dst.starts_with(ip_str)
-                } else {
-                    false
-                }
-            }
-        };
-        if negated == matched {
-            return false;
-        }
-    }
-    true
-}
-
-fn extract_port(addr: &str) -> Option<u16> {
-    let colon_pos = addr.rfind(':')?;
-    addr[colon_pos + 1..].parse().ok()
-}
+use crate::packet::{
+    self, CapturedPacket, FlowKey, Protocol, extract_tcp_payload, matches_display_filter,
+};
 
 // ---------------------------------------------------------------------------
 // Subcommand: read
@@ -388,34 +338,6 @@ pub fn cmd_stream(file: &str, flow_str: Option<&str>) -> Result<()> {
     serde_json::to_writer_pretty(io::stdout().lock(), &output)?;
     println!();
     Ok(())
-}
-
-/// Extract TCP payload from a raw Ethernet frame (same logic as app.rs).
-fn extract_tcp_payload(data: &[u8]) -> Option<&[u8]> {
-    if data.len() < 14 {
-        return None;
-    }
-    let ethertype = u16::from_be_bytes([data[12], data[13]]);
-    let ip = &data[14..];
-    let ip_hdr_len = match ethertype {
-        0x0800 => {
-            if ip.is_empty() {
-                return None;
-            }
-            ((ip[0] & 0x0F) as usize) * 4
-        }
-        0x86DD => 40,
-        _ => return None,
-    };
-    if ip.len() < ip_hdr_len + 20 {
-        return None;
-    }
-    let tcp = &ip[ip_hdr_len..];
-    let tcp_hdr_len = ((tcp[12] >> 4) as usize) * 4;
-    if tcp.len() <= tcp_hdr_len {
-        return None;
-    }
-    Some(&tcp[tcp_hdr_len..])
 }
 
 // ---------------------------------------------------------------------------
