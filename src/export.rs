@@ -1,9 +1,9 @@
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::packet::CapturedPacket;
 
@@ -65,6 +65,52 @@ fn timestamp_to_epoch(ts: SystemTime) -> (u32, u32) {
         }
         Err(_) => (0, 0),
     }
+}
+
+/// Read packets from a pcap file, returning raw packet data with timestamps.
+///
+/// Parses the global header and iterates packet records.
+pub fn read_pcap(path: &Path) -> Result<Vec<(SystemTime, Vec<u8>)>> {
+    let mut file =
+        File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    if buf.len() < 24 {
+        bail!("file too small for pcap global header");
+    }
+
+    let magic = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+    if magic != PCAP_MAGIC {
+        bail!("not a pcap file (bad magic: 0x{magic:08X})");
+    }
+
+    let mut packets = Vec::new();
+    let mut pos = 24; // skip global header
+
+    while pos + 16 <= buf.len() {
+        let secs = u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]);
+        let usecs = u32::from_le_bytes([buf[pos + 4], buf[pos + 5], buf[pos + 6], buf[pos + 7]]);
+        let caplen =
+            u32::from_le_bytes([buf[pos + 8], buf[pos + 9], buf[pos + 10], buf[pos + 11]]) as usize;
+        pos += 16;
+
+        if pos + caplen > buf.len() {
+            break; // truncated packet
+        }
+
+        let data = buf[pos..pos + caplen].to_vec();
+        let timestamp = SystemTime::UNIX_EPOCH
+            + Duration::from_secs(u64::from(secs))
+            + Duration::from_micros(u64::from(usecs));
+
+        packets.push((timestamp, data));
+        pos += caplen;
+    }
+
+    Ok(packets)
 }
 
 #[cfg(test)]

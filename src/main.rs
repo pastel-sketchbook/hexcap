@@ -48,6 +48,10 @@ struct Cli {
     /// Write captured packets to a pcap file on exit or when pressing 'w'
     #[arg(short, long)]
     write: Option<String>,
+
+    /// Read packets from a pcap file instead of live capture
+    #[arg(short, long)]
+    read: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -84,11 +88,27 @@ fn main() -> Result<()> {
         process_filter,
         cli.write.map(std::path::PathBuf::from),
     )));
-    let mut capture = CaptureHandle::start(
-        cli.interface.as_deref(),
-        cli.filter.as_deref(),
-        Arc::clone(&app),
-    )?;
+
+    // Either read from pcap file or start live capture.
+    let mut capture = if let Some(ref path) = cli.read {
+        let raw_packets = export::read_pcap(std::path::Path::new(path))?;
+        let mut a = app.lock().expect("app mutex poisoned");
+        for (i, (timestamp, data)) in raw_packets.into_iter().enumerate() {
+            let mut pkt = packet::parse_packet((i + 1) as u64, &data);
+            pkt.timestamp = timestamp;
+            a.push_packet(pkt);
+        }
+        a.paused = true; // No live capture, start paused.
+        a.interface_name.clone_from(path);
+        drop(a);
+        None
+    } else {
+        Some(CaptureHandle::start(
+            cli.interface.as_deref(),
+            cli.filter.as_deref(),
+            Arc::clone(&app),
+        )?)
+    };
 
     let bpf_filter = cli.filter.clone();
 
@@ -109,7 +129,7 @@ fn main() -> Result<()> {
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &Arc<Mutex<App>>,
-    capture: &mut CaptureHandle,
+    capture: &mut Option<CaptureHandle>,
     bpf_filter: Option<&str>,
 ) -> Result<()> {
     let mut refresh_counter: u32 = 0;
@@ -120,10 +140,12 @@ fn run_loop(
             a.pending_interface.take()
         };
         if let Some(iface) = pending {
-            capture.stop();
+            if let Some(cap) = capture.as_ref() {
+                cap.stop();
+            }
             match CaptureHandle::start(Some(&iface), bpf_filter, Arc::clone(app)) {
                 Ok(new_cap) => {
-                    *capture = new_cap;
+                    *capture = Some(new_cap);
                     let mut a = app.lock().expect("app mutex poisoned");
                     a.set_status(format!("Switched to {iface}"));
                 }
@@ -221,6 +243,8 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('k') | KeyCode::Up => app.previous(),
         KeyCode::Char('G') | KeyCode::End => app.last(),
         KeyCode::Char('g') | KeyCode::Home => app.first(),
+        KeyCode::PageDown | KeyCode::Char('d') => app.page_down(),
+        KeyCode::PageUp | KeyCode::Char('u') => app.page_up(),
         KeyCode::Enter => app.open_detail(),
         KeyCode::Char(' ') => app.toggle_pause(),
         KeyCode::Char('c') => app.clear(),

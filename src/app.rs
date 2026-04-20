@@ -409,6 +409,26 @@ impl App {
         }
     }
 
+    const PAGE_SIZE: usize = 20;
+
+    pub fn page_down(&mut self) {
+        self.follow = false;
+        let filtered = self.filtered_indices();
+        if let Some(pos) = filtered.iter().position(|&i| i == self.selected) {
+            let target = (pos + Self::PAGE_SIZE).min(filtered.len().saturating_sub(1));
+            self.selected = filtered[target];
+        }
+    }
+
+    pub fn page_up(&mut self) {
+        self.follow = false;
+        let filtered = self.filtered_indices();
+        if let Some(pos) = filtered.iter().position(|&i| i == self.selected) {
+            let target = pos.saturating_sub(Self::PAGE_SIZE);
+            self.selected = filtered[target];
+        }
+    }
+
     pub fn open_detail(&mut self) {
         if self.selected_packet().is_some() {
             self.view = View::Detail;
