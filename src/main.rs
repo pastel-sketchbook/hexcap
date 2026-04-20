@@ -169,6 +169,10 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             handle_detail_key(app, code);
             false
         }
+        View::Flows => {
+            handle_flows_key(app, code);
+            false
+        }
     }
 }
 
@@ -197,9 +201,22 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
             let msg = app.export_packets();
             app.set_status(msg);
         }
+        KeyCode::Char('n') => app.open_flows(),
+        KeyCode::Char('N') => app.clear_flow_filter(),
         _ => {}
     }
     false
+}
+
+fn handle_flows_key(app: &mut App, code: KeyCode) {
+    match code {
+        KeyCode::Char('q') | KeyCode::Esc => app.close_flows(),
+        KeyCode::Char('j') | KeyCode::Down => app.flow_next(),
+        KeyCode::Char('k') | KeyCode::Up => app.flow_prev(),
+        KeyCode::Enter => app.flow_select(),
+        KeyCode::Char('t') => app.next_theme(),
+        _ => {}
+    }
 }
 
 fn handle_detail_key(app: &mut App, code: KeyCode) {

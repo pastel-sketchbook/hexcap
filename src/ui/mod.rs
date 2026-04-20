@@ -1,4 +1,5 @@
 mod detail;
+mod flows;
 mod footer;
 mod header;
 pub mod helpers;
@@ -33,6 +34,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     match app.view {
         View::List => draw_list_layout(frame, app),
         View::Detail => draw_detail_layout(frame, app),
+        View::Flows => draw_flows_layout(frame, app),
     }
 
     // Overlay: process picker popup.
@@ -97,4 +99,23 @@ fn draw_detail_layout(frame: &mut Frame, app: &App) {
     detail::draw_decoded_fields(frame, app, theme, chunks[2]);
     detail::draw_hex_dump(frame, app, theme, chunks[3]);
     footer::draw_footer(frame, app, theme, chunks[4]);
+}
+
+/// Flows layout: header | flows table | footer.
+fn draw_flows_layout(frame: &mut Frame, app: &App) {
+    let theme = app.theme();
+    let area = frame.area();
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // header
+            Constraint::Min(5),    // flows table
+            Constraint::Length(1), // footer
+        ])
+        .split(area);
+
+    header::draw_header(frame, app, theme, chunks[0]);
+    flows::draw_flows_table(frame, app, theme, chunks[1]);
+    footer::draw_footer(frame, app, theme, chunks[2]);
 }

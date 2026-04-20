@@ -1,11 +1,10 @@
-use std::collections::HashSet;
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::config;
-use crate::packet::{CapturedPacket, Protocol};
+use crate::packet::{CapturedPacket, FlowKey, Protocol};
 use crate::process::ProcessInfo;
 use crate::theme::{self, Theme};
 
@@ -13,6 +12,7 @@ use crate::theme::{self, Theme};
 pub enum View {
     List,
     Detail,
+    Flows,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -97,6 +97,23 @@ pub struct App {
 
     // -- Status message (auto-clears after a few seconds) --
     pub status_message: Option<(String, Instant)>,
+
+    // -- Flow tracking --
+    pub flows: Vec<FlowInfo>,
+    pub flow_map: HashMap<FlowKey, usize>,
+    pub flow_selected: usize,
+    pub flow_filter: Option<FlowKey>,
+}
+
+/// Aggregated info for a single bidirectional flow.
+#[derive(Debug, Clone)]
+pub struct FlowInfo {
+    pub key: FlowKey,
+    pub protocol: Protocol,
+    pub src: String,
+    pub dst: String,
+    pub packet_count: u64,
+    pub total_bytes: u64,
 }
 
 /// Active process filter state.
@@ -148,6 +165,10 @@ impl App {
             process_picker: None,
             export_path,
             status_message: None,
+            flows: Vec::new(),
+            flow_map: HashMap::new(),
+            flow_selected: 0,
+            flow_filter: None,
         }
     }
 
@@ -198,6 +219,13 @@ impl App {
             let haystack = format!("{} {} {} {}", pkt.protocol, pkt.src, pkt.dst, pkt.length)
                 .to_ascii_lowercase();
             if !haystack.contains(&q) {
+                return false;
+            }
+        }
+        // Flow filter.
+        if let Some(ref fk) = self.flow_filter {
+            let pkt_flow = FlowKey::new(&pkt.src, &pkt.dst);
+            if &pkt_flow != fk {
                 return false;
             }
         }
@@ -255,6 +283,27 @@ impl App {
             return;
         }
         self.total_bytes += pkt.length as u64;
+
+        // Update flow tracking.
+        let flow = FlowKey::new(&pkt.src, &pkt.dst);
+        let flow_idx = if let Some(&idx) = self.flow_map.get(&flow) {
+            idx
+        } else {
+            let idx = self.flows.len();
+            self.flows.push(FlowInfo {
+                key: flow.clone(),
+                protocol: pkt.protocol,
+                src: pkt.src.clone(),
+                dst: pkt.dst.clone(),
+                packet_count: 0,
+                total_bytes: 0,
+            });
+            self.flow_map.insert(flow, idx);
+            idx
+        };
+        self.flows[flow_idx].packet_count += 1;
+        self.flows[flow_idx].total_bytes += pkt.length as u64;
+
         self.packets.push_back(pkt);
         while self.packets.len() > self.max_packets {
             self.packets.pop_front();
@@ -331,6 +380,47 @@ impl App {
         self.packets.clear();
         self.selected = 0;
         self.total_bytes = 0;
+        self.flows.clear();
+        self.flow_map.clear();
+        self.flow_selected = 0;
+        self.flow_filter = None;
+    }
+
+    // -- Flow view -----------------------------------------------------------
+
+    pub fn open_flows(&mut self) {
+        self.view = View::Flows;
+        self.flow_selected = 0;
+    }
+
+    pub fn close_flows(&mut self) {
+        self.view = View::List;
+    }
+
+    pub fn flow_next(&mut self) {
+        if !self.flows.is_empty() && self.flow_selected + 1 < self.flows.len() {
+            self.flow_selected += 1;
+        }
+    }
+
+    pub fn flow_prev(&mut self) {
+        if self.flow_selected > 0 {
+            self.flow_selected -= 1;
+        }
+    }
+
+    /// Apply a flow filter and return to the packet list.
+    pub fn flow_select(&mut self) {
+        if let Some(flow) = self.flows.get(self.flow_selected) {
+            self.flow_filter = Some(flow.key.clone());
+            self.view = View::List;
+            self.clamp_selected();
+        }
+    }
+
+    pub fn clear_flow_filter(&mut self) {
+        self.flow_filter = None;
+        self.clamp_selected();
     }
 
     pub fn scroll_down(&mut self) {
