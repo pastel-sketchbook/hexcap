@@ -245,6 +245,9 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
                 app.open_interface_picker(ifaces);
             }
         }
+        KeyCode::Char('m') => app.toggle_bookmark(),
+        KeyCode::Char('\'') => app.jump_next_bookmark(),
+        KeyCode::Char('"') => app.jump_prev_bookmark(),
         _ => {}
     }
     false

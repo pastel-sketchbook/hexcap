@@ -115,6 +115,10 @@ pub struct App {
     pub interface_picker: Option<InterfacePicker>,
     /// Set to Some(name) when user picks a new interface; main loop consumes it.
     pub pending_interface: Option<String>,
+
+    // -- Bookmarks --
+    /// Set of bookmarked packet IDs.
+    pub bookmarks: HashSet<u64>,
 }
 
 /// Aggregated info for a single bidirectional flow.
@@ -194,6 +198,7 @@ impl App {
             interface_name: String::new(),
             interface_picker: None,
             pending_interface: None,
+            bookmarks: HashSet::new(),
         }
     }
 
@@ -507,6 +512,72 @@ impl App {
         };
         self.pending_interface = Some(name);
         self.interface_picker = None;
+    }
+
+    // -- Bookmarks -----------------------------------------------------------
+
+    /// Toggle bookmark on the currently selected packet.
+    pub fn toggle_bookmark(&mut self) {
+        if let Some(pkt) = self.selected_packet() {
+            let id = pkt.id;
+            if !self.bookmarks.remove(&id) {
+                self.bookmarks.insert(id);
+            }
+        }
+    }
+
+    /// Jump to the next bookmarked packet (forward from current selection).
+    pub fn jump_next_bookmark(&mut self) {
+        let filtered = self.filtered_indices();
+        if let Some(cur_pos) = filtered.iter().position(|&i| i == self.selected) {
+            // Search forward from current position.
+            for &idx in &filtered[cur_pos + 1..] {
+                if let Some(pkt) = self.packets.get(idx)
+                    && self.bookmarks.contains(&pkt.id)
+                {
+                    self.selected = idx;
+                    self.follow = false;
+                    return;
+                }
+            }
+            // Wrap around from the start.
+            for &idx in &filtered[..cur_pos] {
+                if let Some(pkt) = self.packets.get(idx)
+                    && self.bookmarks.contains(&pkt.id)
+                {
+                    self.selected = idx;
+                    self.follow = false;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Jump to the previous bookmarked packet.
+    pub fn jump_prev_bookmark(&mut self) {
+        let filtered = self.filtered_indices();
+        if let Some(cur_pos) = filtered.iter().position(|&i| i == self.selected) {
+            // Search backward.
+            for &idx in filtered[..cur_pos].iter().rev() {
+                if let Some(pkt) = self.packets.get(idx)
+                    && self.bookmarks.contains(&pkt.id)
+                {
+                    self.selected = idx;
+                    self.follow = false;
+                    return;
+                }
+            }
+            // Wrap around from the end.
+            for &idx in filtered[cur_pos + 1..].iter().rev() {
+                if let Some(pkt) = self.packets.get(idx)
+                    && self.bookmarks.contains(&pkt.id)
+                {
+                    self.selected = idx;
+                    self.follow = false;
+                    return;
+                }
+            }
+        }
     }
 
     pub fn scroll_down(&mut self) {

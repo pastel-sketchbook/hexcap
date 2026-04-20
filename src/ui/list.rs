@@ -84,8 +84,14 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
             });
             let flow_col = FLOW_PALETTE[flow_idx];
 
+            let id_label = if app.bookmarks.contains(&p.id) {
+                format!("★{}", p.id)
+            } else {
+                format!("{}", p.id)
+            };
+
             Row::new(vec![
-                Cell::from(format!("{}", p.id)),
+                Cell::from(id_label),
                 Cell::from(format_time(p)),
                 Cell::from(p.protocol.to_string()).style(Style::default().fg(proto_col)),
                 Cell::from(p.src.clone()).style(Style::default().fg(flow_col)),
