@@ -36,7 +36,7 @@ fn title_spans(theme: &Theme) -> Vec<Span<'static>> {
 fn status_badge(paused: bool, theme: &Theme) -> Span<'static> {
     if paused {
         Span::styled(
-            " ⏸ PAUSED ",
+            " || PAUSED ",
             Style::default()
                 .fg(theme.highlight_fg)
                 .add_modifier(Modifier::BOLD),
