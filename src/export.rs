@@ -130,6 +130,7 @@ mod tests {
             length: 14,
             data: vec![0u8; 14],
             decoded: vec![],
+            tcp_flags: 0,
         };
         let packets: Vec<&CapturedPacket> = vec![&pkt];
         let count = write_pcap(&dir, &packets).unwrap();

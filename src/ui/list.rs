@@ -12,6 +12,31 @@ use crate::theme::Theme;
 
 use super::helpers::{highlight_style, stripe_style};
 
+/// TCP flag constants.
+const TCP_FIN: u8 = 0x01;
+const TCP_SYN: u8 = 0x02;
+const TCP_RST: u8 = 0x04;
+
+/// Semantic row color based on protocol and TCP flags (Wireshark-style).
+/// Returns `None` for normal coloring (use flow/stripe defaults).
+fn semantic_color(p: &CapturedPacket) -> Option<Color> {
+    if p.tcp_flags & TCP_RST != 0 {
+        return Some(Color::Rgb(255, 80, 80)); // red — connection reset
+    }
+    if p.tcp_flags & TCP_SYN != 0 && p.tcp_flags & 0x10 == 0 {
+        return Some(Color::Rgb(100, 220, 100)); // green — new connection (SYN only)
+    }
+    if p.tcp_flags & TCP_FIN != 0 {
+        return Some(Color::Rgb(200, 160, 80)); // amber — connection closing
+    }
+    match p.protocol {
+        Protocol::Icmp => Some(Color::Rgb(180, 180, 255)), // light blue
+        Protocol::Arp => Some(Color::Rgb(200, 200, 140)),  // khaki
+        Protocol::Dns => Some(Color::Rgb(140, 220, 200)),  // teal
+        _ => None,
+    }
+}
+
 /// Base column widths for the packet table.
 const BASE_WIDTHS: [u16; 6] = [7, 12, 8, 18, 18, 6];
 
@@ -122,7 +147,11 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
                 Cell::from(dst_display).style(Style::default().fg(flow_col)),
                 Cell::from(format!("{}", p.length)),
             ])
-            .style(stripe_style(idx, theme))
+            .style(if let Some(sem) = semantic_color(p) {
+                stripe_style(idx, theme).fg(sem)
+            } else {
+                stripe_style(idx, theme)
+            })
         })
         .collect();
 

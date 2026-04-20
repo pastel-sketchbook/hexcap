@@ -51,6 +51,8 @@ pub struct CapturedPacket {
     pub length: usize,
     pub data: Vec<u8>,
     pub decoded: Vec<DecodedField>,
+    /// Raw TCP flags byte (SYN=0x02, RST=0x04, FIN=0x01, etc.). Zero for non-TCP.
+    pub tcp_flags: u8,
 }
 
 /// A decoded header field for display in the detail view.
@@ -98,6 +100,7 @@ pub fn parse_packet(id: u64, data: &[u8]) -> CapturedPacket {
             length,
             data: data.to_vec(),
             decoded: vec![],
+            tcp_flags: 0,
         };
     }
 
@@ -116,6 +119,7 @@ pub fn parse_packet(id: u64, data: &[u8]) -> CapturedPacket {
                 length,
                 data: data.to_vec(),
                 decoded,
+                tcp_flags: 0,
             }
         }
         0x0800 => parse_ipv4(id, timestamp, data, length),
@@ -130,6 +134,7 @@ pub fn parse_packet(id: u64, data: &[u8]) -> CapturedPacket {
             length,
             data: data.to_vec(),
             decoded: vec![field("EtherType", format!("0x{ethertype:04X}"))],
+            tcp_flags: 0,
         },
     }
 }
@@ -145,6 +150,7 @@ fn parse_ipv4(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
             length,
             data: data.to_vec(),
             decoded: vec![],
+            tcp_flags: 0,
         };
     }
 
@@ -166,19 +172,21 @@ fn parse_ipv4(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
         field("Flags", format_ip_flags(flags_frag)),
     ];
 
-    let (protocol, src, dst) = match proto_byte {
+    let (protocol, src, dst, tcp_flags) = match proto_byte {
         1 => {
             decoded.extend(decode_icmp(ip, ihl));
-            (Protocol::Icmp, src_ip, dst_ip)
+            (Protocol::Icmp, src_ip, dst_ip, 0u8)
         }
         6 => {
             let (sp, dp) = parse_ports(ip, ihl);
             decoded.extend(decode_tcp(ip, ihl));
             let is_dns = sp == 53 || dp == 53;
+            let flags = if ip.len() > ihl + 13 { ip[ihl + 13] } else { 0 };
             (
                 if is_dns { Protocol::Dns } else { Protocol::Tcp },
                 format!("{src_ip}:{sp}"),
                 format!("{dst_ip}:{dp}"),
+                flags,
             )
         }
         17 => {
@@ -189,11 +197,12 @@ fn parse_ipv4(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
                 if is_dns { Protocol::Dns } else { Protocol::Udp },
                 format!("{src_ip}:{sp}"),
                 format!("{dst_ip}:{dp}"),
+                0u8,
             )
         }
         other => {
             decoded.push(field("IP Protocol", format!("0x{other:02X}")));
-            (Protocol::Other(other), src_ip, dst_ip)
+            (Protocol::Other(other), src_ip, dst_ip, 0u8)
         }
     };
 
@@ -206,6 +215,7 @@ fn parse_ipv4(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
         length,
         data: data.to_vec(),
         decoded,
+        tcp_flags,
     }
 }
 
@@ -229,6 +239,7 @@ fn parse_ipv6(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
             length,
             data: data.to_vec(),
             decoded: vec![],
+            tcp_flags: 0,
         };
     }
 
@@ -247,19 +258,25 @@ fn parse_ipv6(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
         field("Payload Length", payload_len.to_string()),
     ];
 
-    let (protocol, src, dst) = match next_header {
+    let (protocol, src, dst, tcp_flags) = match next_header {
         58 => {
             decoded.extend(decode_icmp(ip6, transport_offset));
-            (Protocol::Icmp, src_ip, dst_ip)
+            (Protocol::Icmp, src_ip, dst_ip, 0u8)
         }
         6 => {
             let (sp, dp) = parse_ports(ip6, transport_offset);
             decoded.extend(decode_tcp(ip6, transport_offset));
             let is_dns = sp == 53 || dp == 53;
+            let flags = if ip6.len() > transport_offset + 13 {
+                ip6[transport_offset + 13]
+            } else {
+                0
+            };
             (
                 if is_dns { Protocol::Dns } else { Protocol::Tcp },
                 format!("[{src_ip}]:{sp}"),
                 format!("[{dst_ip}]:{dp}"),
+                flags,
             )
         }
         17 => {
@@ -270,11 +287,12 @@ fn parse_ipv6(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
                 if is_dns { Protocol::Dns } else { Protocol::Udp },
                 format!("[{src_ip}]:{sp}"),
                 format!("[{dst_ip}]:{dp}"),
+                0u8,
             )
         }
         other => {
             decoded.push(field("Next Header", format!("0x{other:02X}")));
-            (Protocol::Other(other), src_ip, dst_ip)
+            (Protocol::Other(other), src_ip, dst_ip, 0u8)
         }
     };
 
@@ -287,6 +305,7 @@ fn parse_ipv6(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
         length,
         data: data.to_vec(),
         decoded,
+        tcp_flags,
     }
 }
 
