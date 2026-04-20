@@ -178,7 +178,7 @@ pub fn list_interfaces() -> Result<Vec<InterfaceInfo>> {
 }
 
 /// Info about a network interface for display in the picker.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 #[allow(dead_code)]
 pub struct InterfaceInfo {
     pub name: String,

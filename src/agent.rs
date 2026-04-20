@@ -241,6 +241,8 @@ pub enum AgentCommand {
     },
     /// Mark a packet for diff (same as pressing `x`).
     MarkDiff { id: u64 },
+    /// Switch capture interface.
+    Interface { name: String },
 }
 
 fn default_view() -> String {
@@ -280,6 +282,8 @@ pub enum QueryKind {
     },
     /// Return current status (packet count, paused, view, filters, etc.).
     Status,
+    /// Return available network interfaces.
+    Interfaces,
 }
 
 /// A query from an agent, carrying a request ID and the client that sent it.
@@ -828,6 +832,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_interface_command() {
+        let line = r#"@@HEXCAP:{"action":"interface","name":"en0"}"#;
+        let cmd = parse_command(line).expect("should parse");
+        assert!(matches!(cmd, AgentCommand::Interface { name } if name == "en0"));
+    }
+
+    #[test]
     fn parse_query_packets() {
         let line =
             r#"@@HEXCAP:{"type":"query","id":"r1","query":"packets","filter":"tcp","limit":10}"#;
@@ -864,6 +875,19 @@ mod tests {
                 id,
                 kind: QueryKind::Status
             } if id == "r3"
+        ));
+    }
+
+    #[test]
+    fn parse_query_interfaces() {
+        let line = r#"@@HEXCAP:{"type":"query","id":"r5","query":"interfaces"}"#;
+        let msg = parse_message(line).expect("should parse");
+        assert!(matches!(
+            msg,
+            ParsedMessage::Query {
+                id,
+                kind: QueryKind::Interfaces
+            } if id == "r5"
         ));
     }
 

@@ -379,6 +379,7 @@ hexcap read capture.pcap --dns --geoip country.mmdb --compact
 @@HEXCAP:{"action":"clear"}
 @@HEXCAP:{"action":"view","target":"detail"}
 @@HEXCAP:{"action":"mark_diff","id":7}
+@@HEXCAP:{"action":"interface","name":"en0"}
 ```
 
 ## Architecture Notes
@@ -402,6 +403,6 @@ hexcap read capture.pcap --dns --geoip country.mmdb --compact
 - Agent picker: `A` key opens picker listing Copilot, OpenCode, Gemini, Amp; Copilot/OpenCode/Gemini spawn in prompt mode (snapshot pcap, non-interactive CLI); Amp spawns in terminal split mode (Ghostty/tmux/WezTerm/Zellij)
 - Agent split mode: opens agent TUI in a right-side terminal split pane; Ghostty (AppleScript), tmux, WezTerm, Zellij supported; `HEXCAP_SOCKET` env var set so agent can send commands back; won't spawn duplicate if agent already open
 - Ghostty detection: `GHOSTTY_RESOURCES_DIR` → `TERM_PROGRAM` → `pgrep -xi ghostty` (works under sudo which strips env vars)
-- Agent command protocol: agents write `@@HEXCAP:{"action":"..."}` to stdout (pipe mode) or to the Unix socket (split mode) to control TUI; supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`; export paths validated against `..` traversal
-- Agent query protocol: agents send `@@HEXCAP:{"type":"query","id":"r1","query":"<kind>",...}` and receive `{"id":"r1","type":"response","data":...}` routed to the requesting client only; supported queries: `packets` (filter/limit), `flows`, `stats`, `decode` (packet_id), `stream` (flow), `status`; per-client IDs for directed response routing
+- Agent command protocol: agents write `@@HEXCAP:{"action":"..."}` to stdout (pipe mode) or to the Unix socket (split mode) to control TUI; supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`, `interface`; export paths validated against `..` traversal; interface names validated against available interfaces
+- Agent query protocol: agents send `@@HEXCAP:{"type":"query","id":"r1","query":"<kind>",...}` and receive `{"id":"r1","type":"response","data":...}` routed to the requesting client only; supported queries: `packets` (filter/limit), `flows`, `stats`, `decode` (packet_id), `stream` (flow), `status`, `interfaces`; per-client IDs for directed response routing
 - ANSI stripping: agent stdout/stderr lines have escape sequences stripped before display

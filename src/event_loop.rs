@@ -99,6 +99,28 @@ fn execute_agent_command(app: &mut App, cmd: agent::AgentCommand) {
             }
             app.set_status(format!("Agent: view {target}"));
         }
+        AgentCommand::Interface { name } => {
+            let valid = capture::list_interfaces()
+                .map(|ifaces| ifaces.iter().any(|i| i.name == name))
+                .unwrap_or(false);
+            if valid {
+                app.pending_interface = Some(name.clone());
+                app.set_status(format!("Agent: switching to {name}"));
+            } else {
+                let available = capture::list_interfaces()
+                    .map(|ifaces| {
+                        ifaces
+                            .iter()
+                            .map(|i| i.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                app.set_status(format!(
+                    "Agent: unknown interface '{name}' (available: {available})"
+                ));
+            }
+        }
         AgentCommand::MarkDiff { id } => {
             if let Some(idx) = app.packets.iter().position(|p| p.id == id) {
                 app.selected = idx;
@@ -191,6 +213,11 @@ fn execute_query(app: &App, kind: &agent::QueryKind) -> serde_json::Value {
                 "bookmarks": app.bookmarks.len(),
                 "selected": app.selected,
             })
+        }
+        QueryKind::Interfaces => {
+            capture::list_interfaces()
+                .map(|ifaces| serde_json::to_value(&ifaces).unwrap_or_default())
+                .unwrap_or(serde_json::json!([]))
         }
     }
 }

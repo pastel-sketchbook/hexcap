@@ -160,8 +160,8 @@ and their light variants.
 - **Agent markdown/ANSI**: Agent output is ANSI-stripped (`strip_ansi()`) and rendered as markdown via `tui-markdown` in the agent pane.
 - **Draggable agent pane**: Mouse drag on agent pane border resizes between 20%-80%; `agent_pane_ratio` and `agent_pane_dragging` fields in App.
 - **Bidirectional socket**: `SocketServer::bind` accepts `&AgentCommands` and `&AgentQueries` for reading commands and queries from connected clients. Per-client IDs for directed response routing. Socket permissions `0o700`; randomized filename; `chown` to `SUDO_UID:SUDO_GID`; per-client replay buffer. Auto-created for split agents with `HEXCAP_SOCKET` env var.
-- **Agent command protocol**: Agents send `@@HEXCAP:{"action":"..."}` lines on stdout to control the TUI. Supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`. Export paths validated against `..` traversal.
-- **Agent query protocol**: Agents send `@@HEXCAP:{"type":"query","id":"r1","query":"<kind>",...}` and receive `{"id":"r1","type":"response","data":...}` routed to the requesting client. Supported queries: `packets` (filter, limit), `flows`, `stats`, `decode` (packet_id), `stream` (flow), `status`.
+- **Agent command protocol**: Agents send `@@HEXCAP:{"action":"..."}` lines on stdout to control the TUI. Supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`, `interface`. Export paths validated against `..` traversal. Interface names validated against available interfaces.
+- **Agent query protocol**: Agents send `@@HEXCAP:{"type":"query","id":"r1","query":"<kind>",...}` and receive `{"id":"r1","type":"response","data":...}` routed to the requesting client. Supported queries: `packets` (filter, limit), `flows`, `stats`, `decode` (packet_id), `stream` (flow), `status`, `interfaces`. Per-client IDs for directed response routing.
 
 ## Conventions
 

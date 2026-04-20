@@ -64,8 +64,8 @@ terminal.
 - **Agent ANSI stripping** — ANSI escape sequences stripped from agent output before display
 - **Draggable agent pane** — mouse drag on pane border resizes (20%-80% range)
 - **Bidirectional agent socket** — agents send `@@HEXCAP:` commands and queries back via Unix socket; per-client replay on connect
-- **Agent commands** — agents control the TUI via `@@HEXCAP:` protocol (filter, goto, pause, export, etc.)
-- **Agent queries** — agents request data via `@@HEXCAP:{"type":"query",...}` and receive JSON responses (packets, flows, stats, decode, stream, status)
+- **Agent commands** — agents control the TUI via `@@HEXCAP:` protocol (filter, goto, pause, export, interface, etc.)
+- **Agent queries** — agents request data via `@@HEXCAP:{"type":"query",...}` and receive JSON responses (packets, flows, stats, decode, stream, status, interfaces)
 
 ## Install
 
@@ -184,6 +184,7 @@ Supported queries:
 | `decode` | `packet_id` | Full decoded packet |
 | `stream` | `flow` | TCP payload for a flow |
 | `status` | — | TUI state (packets, view, filters) |
+| `interfaces` | — | Available network interfaces |
 
 Responses are JSON lines: `{"id":"r1","type":"response","data":...}`
 
