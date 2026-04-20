@@ -714,6 +714,36 @@ impl App {
         }
     }
 
+    // -- Agent pane scrolling ------------------------------------------------
+
+    /// Returns the total scrollable line count for the agent pane, accounting
+    /// for which mode is active (chat messages vs pipe output).
+    pub fn agent_pane_line_count(&self) -> usize {
+        if !self.chat_messages.is_empty() || self.chat_input_active {
+            // Count rendered lines from chat messages (one line per text line,
+            // plus a header "sender: " prefix line per message).
+            self.chat_messages
+                .iter()
+                .map(|m| m.text.lines().count().max(1))
+                .sum()
+        } else {
+            self.agent_output.lock().map_or(0, |o| o.len())
+        }
+    }
+
+    /// Scroll the agent pane toward the top (older content).
+    pub fn agent_scroll_up(&mut self) {
+        let total = self.agent_pane_line_count();
+        if self.agent_scroll < total {
+            self.agent_scroll += 1;
+        }
+    }
+
+    /// Scroll the agent pane toward the bottom (newer content).
+    pub fn agent_scroll_down(&mut self) {
+        self.agent_scroll = self.agent_scroll.saturating_sub(1);
+    }
+
     // -- Navigation ----------------------------------------------------------
 
     pub fn next(&mut self) {

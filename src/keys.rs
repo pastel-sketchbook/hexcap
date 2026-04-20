@@ -45,13 +45,10 @@ pub fn handle_mouse(app: &mut App, event: MouseEvent, term_height: u16) {
     if app.show_agent_pane && event.row >= split_row {
         match event.kind {
             MouseEventKind::ScrollDown => {
-                app.agent_scroll = app.agent_scroll.saturating_sub(1);
+                app.agent_scroll_down();
             }
             MouseEventKind::ScrollUp => {
-                let total = app.agent_output.lock().map_or(0, |o| o.len());
-                if app.agent_scroll < total {
-                    app.agent_scroll += 1;
-                }
+                app.agent_scroll_up();
             }
             _ => {}
         }
@@ -346,13 +343,10 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
             }
         }
         KeyCode::Char('J') if app.show_agent_pane => {
-            app.agent_scroll = app.agent_scroll.saturating_sub(1);
+            app.agent_scroll_down();
         }
         KeyCode::Char('K') if app.show_agent_pane => {
-            let total = app.agent_output.lock().map_or(0, |o| o.len());
-            if app.agent_scroll < total {
-                app.agent_scroll += 1;
-            }
+            app.agent_scroll_up();
         }
         _ => {}
     }
@@ -437,13 +431,10 @@ fn handle_detail_key(app: &mut App, code: KeyCode) {
             }
         }
         KeyCode::Char('J') if app.show_agent_pane => {
-            app.agent_scroll = app.agent_scroll.saturating_sub(1);
+            app.agent_scroll_down();
         }
         KeyCode::Char('K') if app.show_agent_pane => {
-            let total = app.agent_output.lock().map_or(0, |o| o.len());
-            if app.agent_scroll < total {
-                app.agent_scroll += 1;
-            }
+            app.agent_scroll_up();
         }
         _ => {}
     }
