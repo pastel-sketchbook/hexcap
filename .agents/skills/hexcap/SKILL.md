@@ -222,6 +222,25 @@ Zoegi, FFE Dark, Postrboard, and their light variants. Press `t` to cycle.
 Auto-detects Ghostty terminal theme on startup. Persisted to
 `~/.config/hexcap/preferences.toml`.
 
+## Agent Usage Notes
+
+hexcap is an **interactive TUI application** — agents cannot drive it directly.
+For agent-assisted packet analysis workflows:
+
+1. **Capture**: Use `tcpdump` or `tshark` to capture non-interactively:
+   ```bash
+   sudo tcpdump -i en0 -w /tmp/capture.pcap -c 1000 "tcp port 443"
+   ```
+2. **Hand off**: Tell the user to inspect with hexcap:
+   ```bash
+   hexcap --read /tmp/capture.pcap
+   ```
+3. **Programmatic analysis**: For automated packet inspection, use the source
+   modules directly — `src/packet.rs` (parsing), `src/export.rs` (pcap I/O),
+   `src/hex.rs` (hex dump rendering) contain reusable logic.
+4. **Read pcap files**: The `export::read_pcap()` function returns
+   `Vec<(SystemTime, Vec<u8>)>` and `packet::parse_packet()` decodes each frame.
+
 ## Architecture Notes
 
 - Capture runs on background thread(s) via `std::thread`; TUI on main thread
