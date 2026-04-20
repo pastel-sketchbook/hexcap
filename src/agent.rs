@@ -136,7 +136,7 @@ pub fn open_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
 
     let result = if env::var("TMUX").is_ok() {
         Command::new("tmux")
-            .args(["split-window", "-h", "-l", "60%", "sh", "-c", &wrapped])
+            .args(["split-window", "-h", "-l", "33%", "sh", "-c", &wrapped])
             .spawn()
     } else if env::var("WEZTERM_PANE").is_ok() || env::var("WEZTERM_EXECUTABLE").is_ok() {
         Command::new("wezterm")
@@ -179,7 +179,7 @@ pub fn open_tmux_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
     }
     let wrapped = format!("HEXCAP_SOCKET={socket_path} exec {agent_bin}");
     match Command::new("tmux")
-        .args(["split-window", "-h", "-l", "60%", "sh", "-c", &wrapped])
+        .args(["split-window", "-h", "-l", "33%", "sh", "-c", &wrapped])
         .spawn()
     {
         Ok(_) => Ok(true),
