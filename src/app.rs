@@ -87,6 +87,12 @@ pub struct App {
 
     // -- Stats --
     pub total_bytes: u64,
+    /// Bytes received in the current 1-second window.
+    pub current_window_bytes: u64,
+    /// Bandwidth history (bytes per second), most recent last. Fixed length.
+    pub bandwidth_history: VecDeque<u64>,
+    /// When the current 1-second window started.
+    pub window_start: Instant,
 
     // -- Process filter --
     pub process_filter: Option<ProcessFilter>,
@@ -161,6 +167,9 @@ impl App {
             proto_filter: ProtoFilter::All,
             follow: true,
             total_bytes: 0,
+            current_window_bytes: 0,
+            bandwidth_history: VecDeque::new(),
+            window_start: Instant::now(),
             process_filter,
             process_picker: None,
             export_path,
@@ -276,6 +285,23 @@ impl App {
         self.follow = !self.follow;
     }
 
+    // -- Bandwidth tracking ---------------------------------------------------
+
+    /// Maximum number of 1-second samples to keep for the sparkline.
+    const BANDWIDTH_HISTORY_LEN: usize = 30;
+
+    /// Call periodically (~every tick) to rotate bandwidth windows.
+    pub fn tick_bandwidth(&mut self) {
+        if self.window_start.elapsed().as_secs() >= 1 {
+            self.bandwidth_history.push_back(self.current_window_bytes);
+            while self.bandwidth_history.len() > Self::BANDWIDTH_HISTORY_LEN {
+                self.bandwidth_history.pop_front();
+            }
+            self.current_window_bytes = 0;
+            self.window_start = Instant::now();
+        }
+    }
+
     // -- Packets -------------------------------------------------------------
 
     pub fn push_packet(&mut self, pkt: CapturedPacket) {
@@ -283,6 +309,7 @@ impl App {
             return;
         }
         self.total_bytes += pkt.length as u64;
+        self.current_window_bytes += pkt.length as u64;
 
         // Update flow tracking.
         let flow = FlowKey::new(&pkt.src, &pkt.dst);

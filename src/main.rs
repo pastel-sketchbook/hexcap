@@ -113,6 +113,7 @@ fn run_loop(
         {
             let mut app = app.lock().expect("app mutex poisoned");
             app.tick_status();
+            app.tick_bandwidth();
             refresh_counter += 1;
             if refresh_counter >= 100 {
                 refresh_counter = 0;

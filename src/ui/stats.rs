@@ -4,11 +4,14 @@ use ratatui::text::Span;
 use crate::app::App;
 use crate::theme::Theme;
 
-/// Render a one-line stats row showing protocol counts and total bytes.
+/// Unicode sparkline blocks from lowest to highest.
+const SPARK_CHARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+/// Render a one-line stats row showing protocol counts, total bytes, and bandwidth sparkline.
 pub fn draw_stats_row(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     let counts = app.proto_counts();
 
-    let parts: Vec<Span> = vec![
+    let mut parts: Vec<Span> = vec![
         Span::styled(
             " TCP:",
             Style::default()
@@ -48,15 +51,47 @@ pub fn draw_stats_row(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
             Style::default().fg(theme.muted),
         ),
         Span::styled(
-            format!(" │ filter: {}", app.proto_filter),
+            format!(" │ filter: {} ", app.proto_filter),
             Style::default().fg(theme.muted),
         ),
     ];
+
+    // Flow filter indicator.
+    if app.flow_filter.is_some() {
+        parts.push(Span::styled("│ flow ✓ ", Style::default().fg(theme.accent)));
+    }
+
+    // Bandwidth sparkline.
+    if !app.bandwidth_history.is_empty() {
+        parts.push(Span::styled("│ ", Style::default().fg(theme.border)));
+        let spark = sparkline_string(&app.bandwidth_history);
+        parts.push(Span::styled(spark, Style::default().fg(theme.accent)));
+        // Show current rate.
+        if let Some(&last) = app.bandwidth_history.back() {
+            parts.push(Span::styled(
+                format!(" {}/s", format_bytes(last)),
+                Style::default().fg(theme.muted),
+            ));
+        }
+    }
 
     let line = Line::from(parts);
     let paragraph =
         ratatui::widgets::Paragraph::new(line).style(Style::default().bg(theme.panel_bg));
     frame.render_widget(paragraph, area);
+}
+
+/// Convert a sequence of values into a sparkline string.
+fn sparkline_string(values: &std::collections::VecDeque<u64>) -> String {
+    let max = values.iter().copied().max().unwrap_or(1).max(1);
+    values
+        .iter()
+        .map(|&v| {
+            #[allow(clippy::cast_possible_truncation)]
+            let idx = ((v * 7) / max) as usize;
+            SPARK_CHARS[idx.min(7)]
+        })
+        .collect()
 }
 
 #[allow(clippy::cast_precision_loss)] // Display-only formatting; precision loss acceptable.
