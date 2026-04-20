@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -91,14 +91,14 @@ pub fn extract_ip(addr: &str) -> Option<IpAddr> {
 /// Results are merged into `app.dns_cache`.
 pub fn resolve_batch(
     addrs: Vec<String>,
-    existing: HashMap<IpAddr, String>,
+    existing_keys: HashSet<IpAddr>,
     app: Arc<Mutex<crate::app::App>>,
 ) {
     thread::spawn(move || {
         let mut new_entries: HashMap<IpAddr, String> = HashMap::new();
         for addr in &addrs {
             if let Some(ip) = extract_ip(addr) {
-                if existing.contains_key(&ip) || new_entries.contains_key(&ip) {
+                if existing_keys.contains(&ip) || new_entries.contains_key(&ip) {
                     continue;
                 }
                 if let Some(hostname) = resolve_ip(ip) {

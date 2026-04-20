@@ -118,6 +118,9 @@ fn main() -> Result<()> {
     };
 
     // Either read from pcap file or start live capture.
+    // Mutex poisoning policy: if any thread panics while holding the App
+    // mutex, recovery is not possible — the TUI state is inconsistent.
+    // All `.expect("app mutex poisoned")` calls intentionally propagate the panic.
     let (mut capture, capture_group) = if let Some(ref path) = cli.read {
         let raw_packets = export::read_pcap(std::path::Path::new(path))?;
         let mut a = app.lock().expect("app mutex poisoned");
@@ -268,10 +271,10 @@ fn run_loop(
                     .iter()
                     .flat_map(|p| [p.src.clone(), p.dst.clone()])
                     .collect();
-                let existing = app_guard.dns_cache.clone();
+                let existing_keys = app_guard.dns_cache.keys().copied().collect();
                 let app_clone = Arc::clone(app);
                 drop(app_guard);
-                dns::resolve_batch(addrs, existing, app_clone);
+                dns::resolve_batch(addrs, existing_keys, app_clone);
             } else {
                 // GeoIP resolution (cheap, in-line).
                 if app_guard.geoip_enabled
