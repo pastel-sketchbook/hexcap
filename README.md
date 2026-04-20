@@ -63,8 +63,9 @@ terminal.
 - **Agent markdown rendering** — agent output rendered as markdown in the TUI pane via `tui-markdown`
 - **Agent ANSI stripping** — ANSI escape sequences stripped from agent output before display
 - **Draggable agent pane** — mouse drag on pane border resizes (20%-80% range)
-- **Bidirectional agent socket** — agents send `@@HEXCAP:` commands back via Unix socket; auto-created for split agents
+- **Bidirectional agent socket** — agents send `@@HEXCAP:` commands and queries back via Unix socket; per-client replay on connect
 - **Agent commands** — agents control the TUI via `@@HEXCAP:` protocol (filter, goto, pause, export, etc.)
+- **Agent queries** — agents request data via `@@HEXCAP:{"type":"query",...}` and receive JSON responses (packets, flows, stats, decode, stream, status)
 
 ## Install
 
@@ -159,6 +160,32 @@ sudo hexcap --socket /tmp/hexcap.sock
 hexcap --json --read capture.pcap
 sudo hexcap --json -i en0 --max-packets 200
 ```
+
+### Socket Query Protocol
+
+External agents can connect to the Unix domain socket (created via `--socket`,
+`X` key, or automatically for split agents) and send queries to request data:
+
+```sh
+# Connect and query flows
+echo '@@HEXCAP:{"type":"query","id":"r1","query":"flows"}' | socat - UNIX:/tmp/hexcap_*.sock
+
+# Query packets with filter
+echo '@@HEXCAP:{"type":"query","id":"r2","query":"packets","filter":"tcp port:443","limit":10}' | socat - UNIX:/tmp/hexcap_*.sock
+```
+
+Supported queries:
+
+| Query | Parameters | Returns |
+|-------|-----------|---------|
+| `packets` | `filter?`, `limit?` (max 10k) | Matching packets |
+| `flows` | — | Flow summary table |
+| `stats` | — | Protocol counts, bytes, flow count |
+| `decode` | `packet_id` | Full decoded packet |
+| `stream` | `flow` | TCP payload for a flow |
+| `status` | — | TUI state (packets, view, filters) |
+
+Responses are JSON lines: `{"id":"r1","type":"response","data":...}`
 
 ## Keybindings
 
@@ -258,7 +285,7 @@ src/
   main.rs       — entry point, CLI structs, terminal setup
   keys.rs       — key/mouse event handlers (list, detail, flows, stream views)
   event_loop.rs — main event loop, agent command execution
-  agent.rs      — agent pipe/prompt/split spawn, socket server, ANSI stripping, markdown rendering
+  agent.rs      — agent pipe/prompt/split spawn, socket server, query protocol, ANSI stripping
   app.rs        — application state, navigation, filtering, flow tracking
   capture.rs    — libpcap capture thread with AtomicBool stop signal
   clipboard.rs  — system clipboard helper (pbcopy/xclip)

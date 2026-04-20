@@ -154,13 +154,14 @@ and their light variants.
 - **Bookmark persistence**: Bookmarks saved to `.pcap.bookmarks` sidecar files alongside pcap exports.
 - **Multi-interface capture**: `-i en0,lo0` comma-separated interface list; spawns one capture thread per interface.
 - **Headless/JSON mode**: CLI subcommands (`read`, `capture`, `flows`, `stats`, `stream`, `decode`, `interfaces`) bypass the TUI and emit JSON (array or JSONL) to stdout for agent/pipeline consumption. The `--json` flag on the root CLI provides the same headless output for `--read` (JSON array) and live capture (JSONL, bounded by `--max-packets`).
-- **Agent pipe/socket**: `--pipe "command"` spawns a child process, feeds JSONL packets to its stdin, and displays stdout in a bottom split pane. `--socket /path/to/sock` creates a Unix domain socket broadcasting JSONL to all connected clients. `A` toggles agent pane visibility; `J`/`K` scroll the pane. `X` creates socket on demand / shows path.
+- **Agent pipe/socket**: `--pipe "command"` spawns a child process, feeds JSONL packets to its stdin, and displays stdout in a bottom split pane. `--socket /path/to/sock` creates a Unix domain socket broadcasting JSONL to all connected clients. `A` toggles agent pane visibility; `J`/`K` scroll the pane. `X` creates socket on demand, copies path to clipboard.
 - **Agent spawn modes**: Prompt mode (`spawn_prompt`) for non-interactive agents (Copilot `-p`, OpenCode `run`, Gemini `-p`); split mode (`open_split`) for TUI agents (Amp) via Ghostty AppleScript, tmux, WezTerm, or Zellij terminal splits.
 - **Agent picker**: `A` key (with no active agent) opens a picker to select from 4 built-in agents: Copilot, OpenCode, Gemini, Amp. Selected agent is spawned in its configured mode. Duplicate spawns prevented — shows socket path if agent already active.
 - **Agent markdown/ANSI**: Agent output is ANSI-stripped (`strip_ansi()`) and rendered as markdown via `tui-markdown` in the agent pane.
 - **Draggable agent pane**: Mouse drag on agent pane border resizes between 20%-80%; `agent_pane_ratio` and `agent_pane_dragging` fields in App.
-- **Bidirectional socket**: `SocketServer::bind` accepts `&AgentCommands` for reading `@@HEXCAP:` commands from connected clients. Auto-created at `/tmp/hexcap_{pid}.sock` for split agents with `HEXCAP_SOCKET` env var.
-- **Agent command protocol**: Agents send `@@HEXCAP:{"action":"..."}` lines on stdout to control the TUI. Supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`.
+- **Bidirectional socket**: `SocketServer::bind` accepts `&AgentCommands` and `&AgentQueries` for reading commands and queries from connected clients. Per-client IDs for directed response routing. Socket permissions `0o700`; randomized filename; `chown` to `SUDO_UID:SUDO_GID`; per-client replay buffer. Auto-created for split agents with `HEXCAP_SOCKET` env var.
+- **Agent command protocol**: Agents send `@@HEXCAP:{"action":"..."}` lines on stdout to control the TUI. Supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`. Export paths validated against `..` traversal.
+- **Agent query protocol**: Agents send `@@HEXCAP:{"type":"query","id":"r1","query":"<kind>",...}` and receive `{"id":"r1","type":"response","data":...}` routed to the requesting client. Supported queries: `packets` (filter, limit), `flows`, `stats`, `decode` (packet_id), `stream` (flow), `status`.
 
 ## Conventions
 
