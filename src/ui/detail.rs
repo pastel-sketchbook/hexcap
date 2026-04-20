@@ -123,3 +123,39 @@ pub fn draw_hex_dump(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         frame.render_widget(empty, area);
     }
 }
+
+/// Render the TCP stream content (mixed hex dump + ASCII view).
+pub fn draw_stream_content(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
+    let title_style = Style::default()
+        .fg(theme.accent)
+        .add_modifier(Modifier::BOLD);
+
+    let size = app.stream_data.len();
+    let title = format!(" TCP Stream ({size} bytes) ");
+
+    if app.stream_data.is_empty() {
+        let empty = Paragraph::new("No stream data").block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border))
+                .title(title)
+                .title_style(title_style),
+        );
+        frame.render_widget(empty, area);
+        return;
+    }
+
+    // Show as hex dump with the stream data.
+    let lines = hex::hex_lines(&app.stream_data, theme);
+    let widget = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border))
+                .title(title)
+                .title_style(title_style),
+        )
+        .wrap(Wrap { trim: false })
+        .scroll((app.stream_scroll, 0));
+    frame.render_widget(widget, area);
+}

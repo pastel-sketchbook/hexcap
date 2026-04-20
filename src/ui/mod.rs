@@ -35,6 +35,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         View::List => draw_list_layout(frame, app),
         View::Detail => draw_detail_layout(frame, app),
         View::Flows => draw_flows_layout(frame, app),
+        View::Stream => draw_stream_layout(frame, app),
     }
 
     // Overlay: process picker popup.
@@ -122,5 +123,24 @@ fn draw_flows_layout(frame: &mut Frame, app: &App) {
 
     header::draw_header(frame, app, theme, chunks[0]);
     flows::draw_flows_table(frame, app, theme, chunks[1]);
+    footer::draw_footer(frame, app, theme, chunks[2]);
+}
+
+/// Stream layout: header | stream content | footer.
+fn draw_stream_layout(frame: &mut Frame, app: &App) {
+    let theme = app.theme();
+    let area = frame.area();
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // header
+            Constraint::Min(5),    // stream content
+            Constraint::Length(1), // footer
+        ])
+        .split(area);
+
+    header::draw_header(frame, app, theme, chunks[0]);
+    detail::draw_stream_content(frame, app, theme, chunks[1]);
     footer::draw_footer(frame, app, theme, chunks[2]);
 }

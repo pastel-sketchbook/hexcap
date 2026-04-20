@@ -61,6 +61,21 @@ pub fn draw_stats_row(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
         parts.push(Span::styled("│ flow ✓ ", Style::default().fg(theme.accent)));
     }
 
+    // Capture duration and PPS.
+    let elapsed = app.capture_start.elapsed().as_secs();
+    let dur_h = elapsed / 3600;
+    let dur_m = (elapsed % 3600) / 60;
+    let dur_s = elapsed % 60;
+    parts.push(Span::styled("│ ", Style::default().fg(theme.border)));
+    parts.push(Span::styled(
+        format!("{dur_h:02}:{dur_m:02}:{dur_s:02}"),
+        Style::default().fg(theme.muted),
+    ));
+    parts.push(Span::styled(
+        format!(" {}/s ", app.pps),
+        Style::default().fg(theme.muted),
+    ));
+
     // Bandwidth sparkline.
     if !app.bandwidth_history.is_empty() {
         parts.push(Span::styled("│ ", Style::default().fg(theme.border)));

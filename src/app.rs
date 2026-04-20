@@ -13,6 +13,7 @@ pub enum View {
     List,
     Detail,
     Flows,
+    Stream,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -119,6 +120,29 @@ pub struct App {
     // -- Bookmarks --
     /// Set of bookmarked packet IDs.
     pub bookmarks: HashSet<u64>,
+
+    // -- Capture timing --
+    /// When capture started (or packets were loaded).
+    pub capture_start: Instant,
+    /// Rolling packet count for packets-per-second calculation.
+    pub pps_counter: u64,
+    /// Last computed packets-per-second value.
+    pub pps: u64,
+
+    // -- DNS resolution cache --
+    pub dns_cache: HashMap<std::net::IpAddr, String>,
+    pub dns_enabled: bool,
+
+    // -- TCP stream follow --
+    /// Reassembled TCP stream payload for the current flow.
+    pub stream_data: Vec<u8>,
+    pub stream_scroll: u16,
+
+    // -- Column widths --
+    /// Index of the column currently being resized (0-5).
+    pub resize_column: usize,
+    /// Extra width adjustments per column.
+    pub column_widths: [i16; 6],
 }
 
 /// Aggregated info for a single bidirectional flow.
@@ -199,6 +223,15 @@ impl App {
             interface_picker: None,
             pending_interface: None,
             bookmarks: HashSet::new(),
+            capture_start: Instant::now(),
+            pps_counter: 0,
+            pps: 0,
+            dns_cache: HashMap::new(),
+            dns_enabled: false,
+            stream_data: Vec::new(),
+            stream_scroll: 0,
+            resize_column: 0,
+            column_widths: [0; 6],
         }
     }
 
@@ -246,10 +279,15 @@ impl App {
         }
         if !self.search_query.is_empty() {
             let q = self.search_query.to_ascii_lowercase();
+            // First try matching against metadata (protocol, addresses, length).
             let haystack = format!("{} {} {} {}", pkt.protocol, pkt.src, pkt.dst, pkt.length)
                 .to_ascii_lowercase();
             if !haystack.contains(&q) {
-                return false;
+                // Fall back to payload search: try ASCII substring in raw bytes,
+                // then hex pattern (e.g. "ff d8" or "ffd8").
+                if !payload_contains_ascii(&pkt.data, &q) && !payload_contains_hex(&pkt.data, &q) {
+                    return false;
+                }
             }
         }
         // Flow filter.
@@ -311,7 +349,7 @@ impl App {
     /// Maximum number of 1-second samples to keep for the sparkline.
     const BANDWIDTH_HISTORY_LEN: usize = 30;
 
-    /// Call periodically (~every tick) to rotate bandwidth windows.
+    /// Call periodically (~every tick) to rotate bandwidth windows and compute PPS.
     pub fn tick_bandwidth(&mut self) {
         if self.window_start.elapsed().as_secs() >= 1 {
             self.bandwidth_history.push_back(self.current_window_bytes);
@@ -319,6 +357,8 @@ impl App {
                 self.bandwidth_history.pop_front();
             }
             self.current_window_bytes = 0;
+            self.pps = self.pps_counter;
+            self.pps_counter = 0;
             self.window_start = Instant::now();
         }
     }
@@ -331,6 +371,7 @@ impl App {
         }
         self.total_bytes += pkt.length as u64;
         self.current_window_bytes += pkt.length as u64;
+        self.pps_counter += 1;
 
         // Update flow tracking.
         let flow = FlowKey::new(&pkt.src, &pkt.dst);
@@ -489,6 +530,69 @@ impl App {
     pub fn clear_flow_filter(&mut self) {
         self.flow_filter = None;
         self.clamp_selected();
+    }
+
+    // -- TCP stream follow ---------------------------------------------------
+
+    /// Open the TCP stream view for the currently selected packet's flow.
+    pub fn open_stream(&mut self) {
+        let Some(pkt) = self.selected_packet() else {
+            return;
+        };
+        if pkt.protocol != Protocol::Tcp {
+            self.set_status("Follow stream only works for TCP packets".into());
+            return;
+        }
+        let flow = FlowKey::new(&pkt.src, &pkt.dst);
+
+        // Reassemble: collect TCP payload bytes from all packets in this flow,
+        // in capture order. This is a simple concatenation (not sequence-number ordered).
+        let mut payload = Vec::new();
+        for p in &self.packets {
+            if p.protocol != Protocol::Tcp {
+                continue;
+            }
+            let pkt_flow = FlowKey::new(&p.src, &p.dst);
+            if pkt_flow != flow {
+                continue;
+            }
+            // Extract TCP payload: skip Ethernet(14) + IP header + TCP header.
+            if let Some(tcp_payload) = extract_tcp_payload(&p.data) {
+                payload.extend_from_slice(tcp_payload);
+            }
+        }
+
+        self.stream_data = payload;
+        self.stream_scroll = 0;
+        self.view = View::Stream;
+    }
+
+    pub fn close_stream(&mut self) {
+        self.view = View::Detail;
+    }
+
+    pub fn stream_scroll_down(&mut self) {
+        self.stream_scroll = self.stream_scroll.saturating_add(1);
+    }
+
+    pub fn stream_scroll_up(&mut self) {
+        self.stream_scroll = self.stream_scroll.saturating_sub(1);
+    }
+
+    // -- Column resizing -----------------------------------------------------
+
+    pub fn next_resize_column(&mut self) {
+        self.resize_column = (self.resize_column + 1) % 6;
+    }
+
+    pub fn widen_column(&mut self) {
+        self.column_widths[self.resize_column] =
+            self.column_widths[self.resize_column].saturating_add(2);
+    }
+
+    pub fn narrow_column(&mut self) {
+        self.column_widths[self.resize_column] =
+            self.column_widths[self.resize_column].saturating_sub(2);
     }
 
     // -- Interface picker ----------------------------------------------------
@@ -767,4 +871,72 @@ pub struct ProtoCounts {
     pub dns: usize,
     pub arp: usize,
     pub other: usize,
+}
+
+/// Check if packet data contains the query as an ASCII substring (case-insensitive).
+fn payload_contains_ascii(data: &[u8], query: &str) -> bool {
+    let query_bytes = query.as_bytes();
+    if query_bytes.is_empty() || query_bytes.len() > data.len() {
+        return false;
+    }
+    data.windows(query_bytes.len()).any(|window| {
+        window
+            .iter()
+            .zip(query_bytes.iter())
+            .all(|(a, b)| a.to_ascii_lowercase() == *b)
+    })
+}
+
+/// Check if the query looks like a hex pattern and search for it in the data.
+///
+/// Accepts patterns like "ff d8 ff" or "ffd8ff" (spaces optional).
+fn payload_contains_hex(data: &[u8], query: &str) -> bool {
+    let hex_chars: String = query.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    if hex_chars.len() < 2 || !hex_chars.len().is_multiple_of(2) {
+        return false;
+    }
+    // All chars must be valid hex.
+    if !hex_chars.chars().all(|c| c.is_ascii_hexdigit()) {
+        return false;
+    }
+    let pattern: Vec<u8> = (0..hex_chars.len())
+        .step_by(2)
+        .filter_map(|i| u8::from_str_radix(&hex_chars[i..i + 2], 16).ok())
+        .collect();
+    if pattern.len() != hex_chars.len() / 2 || pattern.is_empty() {
+        return false;
+    }
+    data.windows(pattern.len())
+        .any(|window| window == pattern.as_slice())
+}
+
+/// Extract TCP payload from a raw Ethernet frame.
+///
+/// Skips Ethernet header (14 bytes), IP header (variable), and TCP header (variable).
+fn extract_tcp_payload(data: &[u8]) -> Option<&[u8]> {
+    if data.len() < 14 {
+        return None;
+    }
+    let ethertype = u16::from_be_bytes([data[12], data[13]]);
+    let ip = &data[14..];
+    let ip_hdr_len = match ethertype {
+        0x0800 => {
+            // IPv4
+            if ip.is_empty() {
+                return None;
+            }
+            ((ip[0] & 0x0F) as usize) * 4
+        }
+        0x86DD => 40, // IPv6 fixed header
+        _ => return None,
+    };
+    if ip.len() < ip_hdr_len + 20 {
+        return None;
+    }
+    let tcp = &ip[ip_hdr_len..];
+    let tcp_hdr_len = ((tcp[12] >> 4) as usize) * 4;
+    if tcp.len() <= tcp_hdr_len {
+        return None; // No payload
+    }
+    Some(&tcp[tcp_hdr_len..])
 }

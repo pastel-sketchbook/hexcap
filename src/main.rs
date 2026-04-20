@@ -2,6 +2,7 @@ mod app;
 mod capture;
 mod clipboard;
 mod config;
+mod dns;
 mod export;
 mod hex;
 mod packet;
@@ -15,11 +16,13 @@ use std::time::Duration;
 
 use anyhow::Result;
 use clap::Parser;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseEventKind,
+};
+use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use crossterm::{ExecutableCommand, execute};
 use ratatui::prelude::*;
 
 use app::{App, InputMode, View};
@@ -113,14 +116,14 @@ fn main() -> Result<()> {
     let bpf_filter = cli.filter.clone();
 
     enable_raw_mode()?;
-    io::stdout().execute(EnterAlternateScreen)?;
+    execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
 
     let result = run_loop(&mut terminal, &app, &mut capture, bpf_filter.as_deref());
 
     disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
+    execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
     drop(capture);
 
     result
@@ -133,6 +136,7 @@ fn run_loop(
     bpf_filter: Option<&str>,
 ) -> Result<()> {
     let mut refresh_counter: u32 = 0;
+    let mut dns_counter: u32 = 0;
     loop {
         // Check for pending interface switch.
         let pending = {
@@ -157,28 +161,74 @@ fn run_loop(
         }
 
         {
-            let mut app = app.lock().expect("app mutex poisoned");
-            app.tick_status();
-            app.tick_bandwidth();
+            let mut app_guard = app.lock().expect("app mutex poisoned");
+            app_guard.tick_status();
+            app_guard.tick_bandwidth();
             refresh_counter += 1;
             if refresh_counter >= 100 {
                 refresh_counter = 0;
-                app.refresh_process_ports();
+                app_guard.refresh_process_ports();
             }
-            terminal.draw(|f| ui::render(f, &app))?;
+            // Periodic DNS resolution (~every 5 seconds = 100 ticks).
+            dns_counter += 1;
+            if dns_counter >= 100 && app_guard.dns_enabled {
+                dns_counter = 0;
+                // Collect unique addresses for resolution.
+                let addrs: Vec<String> = app_guard
+                    .packets
+                    .iter()
+                    .flat_map(|p| [p.src.clone(), p.dst.clone()])
+                    .collect();
+                let existing = app_guard.dns_cache.clone();
+                let app_clone = Arc::clone(app);
+                drop(app_guard);
+                dns::resolve_batch(addrs, existing, app_clone);
+            } else {
+                terminal.draw(|f| ui::render(f, &app_guard))?;
+                drop(app_guard);
+            }
         }
 
-        if event::poll(Duration::from_millis(50))?
-            && let Event::Key(key) = event::read()?
-        {
-            if key.kind != KeyEventKind::Press {
-                continue;
-            }
-            let mut app = app.lock().expect("app mutex poisoned");
-            if handle_key(&mut app, key.code) {
-                return Ok(());
+        // Re-draw if we dropped the guard early for DNS.
+        // (The DNS branch skipped the draw, so draw now.)
+
+        if event::poll(Duration::from_millis(50))? {
+            match event::read()? {
+                Event::Key(key) => {
+                    if key.kind != KeyEventKind::Press {
+                        continue;
+                    }
+                    let mut app_guard = app.lock().expect("app mutex poisoned");
+                    if handle_key(&mut app_guard, key.code) {
+                        return Ok(());
+                    }
+                }
+                Event::Mouse(mouse) => {
+                    let mut app_guard = app.lock().expect("app mutex poisoned");
+                    handle_mouse(&mut app_guard, mouse.kind);
+                }
+                _ => {}
             }
         }
+    }
+}
+
+/// Handle mouse events.
+fn handle_mouse(app: &mut App, kind: MouseEventKind) {
+    match kind {
+        MouseEventKind::ScrollDown => match app.view {
+            View::List => app.next(),
+            View::Detail => app.scroll_down(),
+            View::Flows => app.flow_next(),
+            View::Stream => app.stream_scroll_down(),
+        },
+        MouseEventKind::ScrollUp => match app.view {
+            View::List => app.previous(),
+            View::Detail => app.scroll_up(),
+            View::Flows => app.flow_prev(),
+            View::Stream => app.stream_scroll_up(),
+        },
+        _ => {}
     }
 }
 
@@ -232,6 +282,10 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             handle_flows_key(app, code);
             false
         }
+        View::Stream => {
+            handle_stream_key(app, code);
+            false
+        }
     }
 }
 
@@ -272,6 +326,14 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('m') => app.toggle_bookmark(),
         KeyCode::Char('\'') => app.jump_next_bookmark(),
         KeyCode::Char('"') => app.jump_prev_bookmark(),
+        KeyCode::Char('D') => {
+            app.dns_enabled = !app.dns_enabled;
+            let state = if app.dns_enabled { "on" } else { "off" };
+            app.set_status(format!("DNS resolution {state}"));
+        }
+        KeyCode::Tab => app.next_resize_column(),
+        KeyCode::Char('>') => app.widen_column(),
+        KeyCode::Char('<') => app.narrow_column(),
         _ => {}
     }
     false
@@ -319,6 +381,29 @@ fn handle_detail_key(app: &mut App, code: KeyCode) {
                 }
             } else {
                 "No packet selected".into()
+            };
+            app.set_status(msg);
+        }
+        KeyCode::Char('S') => app.open_stream(),
+        _ => {}
+    }
+}
+
+fn handle_stream_key(app: &mut App, code: KeyCode) {
+    match code {
+        KeyCode::Char('q') | KeyCode::Esc => app.close_stream(),
+        KeyCode::Char('j') | KeyCode::Down => app.stream_scroll_down(),
+        KeyCode::Char('k') | KeyCode::Up => app.stream_scroll_up(),
+        KeyCode::Char('t') => app.next_theme(),
+        KeyCode::Char('y') => {
+            let msg = if app.stream_data.is_empty() {
+                "No stream data".into()
+            } else {
+                let dump = hex::hex_dump_plain(&app.stream_data);
+                match clipboard::copy_to_clipboard(&dump) {
+                    Ok(()) => "Stream hex dump copied".into(),
+                    Err(e) => format!("Copy failed: {e}"),
+                }
             };
             app.set_status(msg);
         }

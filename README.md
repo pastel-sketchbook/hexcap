@@ -10,6 +10,7 @@ terminal.
 
 - **Live packet capture** via libpcap with BPF filter support
 - **IPv4 and IPv6** parsing with protocol header decode (TCP/UDP/ICMP/ARP)
+- **TLS handshake decode** — record type, version, handshake type, SNI extraction
 - **Hexyl-style hex dump** with category-based byte coloring (null, ASCII, whitespace, high, other)
 - **16 themes** (8 dark + 8 light) with runtime cycling and persistence
 - **Ghostty auto-detection** — matches your terminal theme on first run
@@ -17,13 +18,19 @@ terminal.
 - **Protocol filtering** — cycle through TCP, UDP, ICMP, DNS, ARP
 - **Flow colorization** — 8 pastel colors per bidirectional connection
 - **Connection tracking** — flows table view with per-flow filtering
+- **Follow TCP stream** — reassembled payload view for any TCP flow
 - **Bandwidth sparkline** — live bytes/sec with Unicode sparkline chart
+- **Capture duration** — elapsed time and packets-per-second in stats bar
 - **Pcap export** — save captures to `.pcap` files (Wireshark-compatible)
 - **Pcap import** — load `.pcap` files for offline inspection (`--read`)
 - **Interface picker** — switch network interfaces live without restart
+- **DNS resolution** — background reverse DNS with `getnameinfo`, opt-in via `D`
+- **Payload search** — search inside packet bytes (ASCII substring or hex pattern)
 - **Clipboard copy** — `y` copies formatted hex dump, `Y` copies raw hex
 - **Packet bookmarks** — mark packets with ★, jump between bookmarks
-- **Text search** — fuzzy search across addresses, protocols, and lengths
+- **Mouse support** — scroll wheel navigation in all views
+- **Column resizing** — adjust table column widths with `Tab`/`<`/`>`
+- **Adaptive footer** — key hints truncated to fit terminal width
 - **Vim keybindings** — j/k, g/G, d/u, Enter, Esc, /
 
 ## Install
@@ -74,7 +81,7 @@ sudo hexcap --max-packets 50000
 | `Enter`        | Open hex dump detail view    |
 | `Space`        | Pause/resume capture         |
 | `c`            | Clear all packets            |
-| `/`            | Search packets               |
+| `/`            | Search (metadata + payload)  |
 | `f`            | Cycle protocol filter        |
 | `F`            | Toggle follow mode           |
 | `p`            | Open process picker          |
@@ -82,10 +89,13 @@ sudo hexcap --max-packets 50000
 | `n`            | Open flows table             |
 | `N`            | Clear flow filter            |
 | `i`            | Open interface picker        |
+| `D`            | Toggle DNS resolution        |
 | `w`            | Export to pcap file          |
 | `m`            | Toggle bookmark on packet    |
 | `'`            | Jump to next bookmark        |
 | `"`            | Jump to previous bookmark    |
+| `Tab`          | Cycle resize column          |
+| `<` / `>`     | Narrow / widen column        |
 | `t`            | Cycle theme                  |
 | `q`            | Quit                         |
 
@@ -96,9 +106,19 @@ sudo hexcap --max-packets 50000
 | `j` / `k`     | Scroll hex dump              |
 | `y`            | Copy formatted hex dump      |
 | `Y`            | Copy raw hex string          |
+| `S`            | Follow TCP stream            |
 | `w`            | Export to pcap file          |
 | `t`            | Cycle theme                  |
 | `q` / `Esc`   | Back to list                 |
+
+### Stream View
+
+| Key            | Action                        |
+|----------------|-------------------------------|
+| `j` / `k`     | Scroll stream                |
+| `y`            | Copy stream hex dump         |
+| `t`            | Cycle theme                  |
+| `q` / `Esc`   | Back to detail               |
 
 ### Flows View
 
@@ -108,6 +128,13 @@ sudo hexcap --max-packets 50000
 | `Enter`        | Filter list by selected flow |
 | `t`            | Cycle theme                  |
 | `q` / `Esc`   | Back to list                 |
+
+### Mouse
+
+| Action         | Effect                        |
+|----------------|-------------------------------|
+| Scroll down    | Next item / scroll down      |
+| Scroll up      | Previous item / scroll up    |
 
 ## Themes
 
@@ -127,20 +154,21 @@ src/
   capture.rs    — libpcap capture thread with AtomicBool stop signal
   clipboard.rs  — system clipboard helper (pbcopy/xclip)
   config.rs     — theme persistence (TOML)
+  dns.rs        — reverse DNS resolution (libc getnameinfo)
   export.rs     — pcap file writer and reader
   hex.rs        — hexyl-style hex dump renderer
-  packet.rs     — packet parsing (IPv4/IPv6), protocol decode
+  packet.rs     — packet parsing (IPv4/IPv6), protocol decode, TLS decode
   process.rs    — process-to-socket resolution (lsof)
   theme.rs      — 16 themes, Ghostty auto-detection
   ui/
     mod.rs      — layout dispatcher
     header.rs   — title bar, live/paused badge
-    list.rs     — packet table with flow colors, bookmarks
-    detail.rs   — decoded fields panel + hex dump
+    list.rs     — packet table with flow colors, bookmarks, DNS display
+    detail.rs   — decoded fields panel + hex dump + stream view
     flows.rs    — connection tracking table
-    footer.rs   — key badges, status, theme name
+    footer.rs   — adaptive key hints (priority-ordered, width-aware)
     picker.rs   — process + interface picker overlays
-    stats.rs    — protocol counts, bandwidth sparkline
+    stats.rs    — protocol counts, bandwidth sparkline, duration, PPS
     helpers.rs  — shared UI utilities
 ```
 
@@ -154,6 +182,10 @@ See [docs/rationale/](docs/rationale/) for design decision rationale:
 - [0007 — Flow Tracking](docs/rationale/0007_flow_tracking.md)
 - [0008 — Interface Switching](docs/rationale/0008_interface_switching.md)
 - [0009 — Clipboard, Bookmarks, Navigation](docs/rationale/0009_clipboard_bookmarks_navigation.md)
+- [0010 — Payload Search](docs/rationale/0010_payload_search.md)
+- [0011 — DNS Resolution](docs/rationale/0011_dns_resolution.md)
+- [0012 — TCP Stream and TLS Decode](docs/rationale/0012_tcp_stream_and_tls.md)
+- [0013 — Mouse, Columns, Footer](docs/rationale/0013_mouse_columns_footer.md)
 
 ## Development
 

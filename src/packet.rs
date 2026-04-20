@@ -339,6 +339,7 @@ fn decode_tcp(ip: &[u8], offset: usize) -> Vec<DecodedField> {
     let ack = u32::from_be_bytes([t[8], t[9], t[10], t[11]]);
     let flags_byte = t[13];
     let window = u16::from_be_bytes([t[14], t[15]]);
+    let data_offset = ((t[12] >> 4) as usize) * 4;
 
     let mut flags = Vec::new();
     if flags_byte & 0x01 != 0 {
@@ -360,12 +361,20 @@ fn decode_tcp(ip: &[u8], offset: usize) -> Vec<DecodedField> {
         flags.push("URG");
     }
 
-    vec![
+    let mut fields = vec![
         field("Seq", seq.to_string()),
         field("Ack", ack.to_string()),
         field("Flags", flags.join(",")),
         field("Window", window.to_string()),
-    ]
+    ];
+
+    // Try to decode TLS handshake from TCP payload.
+    let payload_start = offset + data_offset;
+    if payload_start < ip.len() {
+        fields.extend(decode_tls_record(&ip[payload_start..]));
+    }
+
+    fields
 }
 
 fn decode_udp(ip: &[u8], offset: usize) -> Vec<DecodedField> {
@@ -430,4 +439,153 @@ fn format_mac(bytes: &[u8]) -> String {
         "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
         bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]
     )
+}
+
+// -- TLS handshake decode --------------------------------------------------
+
+/// Try to decode a TLS record header and handshake message.
+fn decode_tls_record(data: &[u8]) -> Vec<DecodedField> {
+    // TLS record: content_type(1) + version(2) + length(2) = 5 bytes minimum
+    if data.len() < 5 {
+        return vec![];
+    }
+    let content_type = data[0];
+    let version = u16::from_be_bytes([data[1], data[2]]);
+
+    // Only decode Handshake (22) and ChangeCipherSpec (20) content types.
+    let type_name = match content_type {
+        20 => "ChangeCipherSpec",
+        21 => "Alert",
+        22 => "Handshake",
+        23 => "ApplicationData",
+        _ => return vec![],
+    };
+
+    let version_str = match version {
+        0x0301 => "TLS 1.0",
+        0x0302 => "TLS 1.1",
+        0x0303 => "TLS 1.2",
+        0x0304 => "TLS 1.3",
+        _ => "Unknown",
+    };
+
+    let mut fields = vec![
+        field("TLS", type_name.into()),
+        field("TLS Version", format!("{version_str} (0x{version:04X})")),
+    ];
+
+    // Decode handshake messages.
+    if content_type == 22 && data.len() > 5 {
+        fields.extend(decode_tls_handshake(&data[5..]));
+    }
+
+    fields
+}
+
+/// Decode the TLS handshake message type and extract SNI from `ClientHello`.
+fn decode_tls_handshake(data: &[u8]) -> Vec<DecodedField> {
+    if data.is_empty() {
+        return vec![];
+    }
+
+    let hs_type = data[0];
+    let hs_name = match hs_type {
+        0 => "HelloRequest",
+        1 => "ClientHello",
+        2 => "ServerHello",
+        4 => "NewSessionTicket",
+        11 => "Certificate",
+        12 => "ServerKeyExchange",
+        13 => "CertificateRequest",
+        14 => "ServerHelloDone",
+        15 => "CertificateVerify",
+        16 => "ClientKeyExchange",
+        20 => "Finished",
+        _ => "Unknown",
+    };
+
+    let mut fields = vec![field("Handshake", hs_name.into())];
+
+    // Extract SNI from ClientHello.
+    if hs_type == 1
+        && let Some(sni) = extract_sni(data)
+    {
+        fields.push(field("SNI", sni));
+    }
+
+    // Extract TLS version from ClientHello/ServerHello.
+    if (hs_type == 1 || hs_type == 2) && data.len() >= 6 {
+        let hs_version = u16::from_be_bytes([data[4], data[5]]);
+        let ver_str = match hs_version {
+            0x0301 => "TLS 1.0",
+            0x0302 => "TLS 1.1",
+            0x0303 => "TLS 1.2/1.3",
+            _ => "Unknown",
+        };
+        fields.push(field(
+            "Handshake Version",
+            format!("{ver_str} (0x{hs_version:04X})"),
+        ));
+    }
+
+    fields
+}
+
+/// Extract Server Name Indication (SNI) from a TLS `ClientHello` message.
+fn extract_sni(data: &[u8]) -> Option<String> {
+    // ClientHello layout:
+    //   [0]: handshake type (1)
+    //   [1..4]: length (3 bytes)
+    //   [4..6]: client version
+    //   [6..38]: random (32 bytes)
+    //   [38]: session_id length
+    if data.len() < 39 {
+        return None;
+    }
+
+    let mut pos = 38;
+    // Skip session ID.
+    let session_id_len = *data.get(pos)? as usize;
+    pos += 1 + session_id_len;
+
+    // Skip cipher suites.
+    if pos + 2 > data.len() {
+        return None;
+    }
+    let cipher_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+    pos += 2 + cipher_len;
+
+    // Skip compression methods.
+    if pos >= data.len() {
+        return None;
+    }
+    let comp_len = *data.get(pos)? as usize;
+    pos += 1 + comp_len;
+
+    // Extensions total length.
+    if pos + 2 > data.len() {
+        return None;
+    }
+    let ext_total = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+    pos += 2;
+    let ext_end = pos + ext_total;
+
+    // Iterate extensions looking for SNI (type 0x0000).
+    while pos + 4 <= data.len().min(ext_end) {
+        let ext_type = u16::from_be_bytes([data[pos], data[pos + 1]]);
+        let ext_len = u16::from_be_bytes([data[pos + 2], data[pos + 3]]) as usize;
+        pos += 4;
+
+        if ext_type == 0 && ext_len >= 5 && pos + ext_len <= data.len() {
+            // SNI extension: list_length(2) + type(1) + name_length(2) + name
+            let name_len = u16::from_be_bytes([data[pos + 3], data[pos + 4]]) as usize;
+            if pos + 5 + name_len <= data.len() {
+                return String::from_utf8(data[pos + 5..pos + 5 + name_len].to_vec()).ok();
+            }
+        }
+
+        pos += ext_len;
+    }
+
+    None
 }

@@ -6,20 +6,33 @@ use ratatui::text::Span;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 
 use crate::app::App;
+use crate::dns;
 use crate::packet::{CapturedPacket, FlowKey, Protocol};
 use crate::theme::Theme;
 
 use super::helpers::{highlight_style, stripe_style};
 
-/// Column widths for the packet table.
-const TABLE_WIDTHS: [Constraint; 6] = [
-    Constraint::Length(7),
-    Constraint::Length(12),
-    Constraint::Length(8),
-    Constraint::Min(18),
-    Constraint::Min(18),
-    Constraint::Length(6),
-];
+/// Base column widths for the packet table.
+const BASE_WIDTHS: [u16; 6] = [7, 12, 8, 18, 18, 6];
+
+/// Build column constraints with user adjustments applied.
+fn table_widths(adjustments: &[i16; 6]) -> [Constraint; 6] {
+    let adjusted = |i: usize| -> u16 {
+        #[allow(clippy::cast_possible_wrap)]
+        let base = BASE_WIDTHS[i] as i16;
+        #[allow(clippy::cast_sign_loss)]
+        let w = (base + adjustments[i]).max(4) as u16;
+        w
+    };
+    [
+        Constraint::Length(adjusted(0)),
+        Constraint::Length(adjusted(1)),
+        Constraint::Length(adjusted(2)),
+        Constraint::Min(adjusted(3)),
+        Constraint::Min(adjusted(4)),
+        Constraint::Length(adjusted(5)),
+    ]
+}
 
 /// Build the table header row.
 fn table_header(theme: &Theme) -> Row<'static> {
@@ -90,12 +103,23 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
                 format!("{}", p.id)
             };
 
+            let src_display = if app.dns_enabled {
+                dns::resolve_display(&p.src, &app.dns_cache)
+            } else {
+                p.src.clone()
+            };
+            let dst_display = if app.dns_enabled {
+                dns::resolve_display(&p.dst, &app.dns_cache)
+            } else {
+                p.dst.clone()
+            };
+
             Row::new(vec![
                 Cell::from(id_label),
                 Cell::from(format_time(p)),
                 Cell::from(p.protocol.to_string()).style(Style::default().fg(proto_col)),
-                Cell::from(p.src.clone()).style(Style::default().fg(flow_col)),
-                Cell::from(p.dst.clone()).style(Style::default().fg(flow_col)),
+                Cell::from(src_display).style(Style::default().fg(flow_col)),
+                Cell::from(dst_display).style(Style::default().fg(flow_col)),
                 Cell::from(format!("{}", p.length)),
             ])
             .style(stripe_style(idx, theme))
@@ -109,7 +133,8 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
         .fg(theme.accent)
         .add_modifier(Modifier::BOLD);
 
-    let table = Table::new(rows, TABLE_WIDTHS)
+    let widths = table_widths(&app.column_widths);
+    let table = Table::new(rows, widths)
         .header(header)
         .block(
             Block::default()

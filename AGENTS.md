@@ -15,7 +15,8 @@ inspection powered by **hexyl**-style rendering.
 Show captured packets in a scrollable TUI list, allow selecting a packet to
 view its raw bytes in a hexyl-style hex dump pane. Support filtering by
 protocol, process, and flow. Support interface switching, pcap export/import,
-clipboard copy, bookmarks, and live bandwidth tracking.
+clipboard copy, bookmarks, live bandwidth tracking, DNS resolution, TCP stream
+follow, TLS handshake decode, mouse scrolling, and column resizing.
 
 ## Build & Run
 
@@ -37,33 +38,43 @@ clipboard copy, bookmarks, and live bandwidth tracking.
 - `anyhow` — error handling.
 - `tracing` + `tracing-subscriber` — structured logging.
 - `directories` — XDG config paths for theme persistence.
+- `libc` — reverse DNS resolution via `getnameinfo`.
 
 ## Architecture
 
 ```
 src/
   main.rs       — entry point, terminal setup, event loop, key dispatch
-                  (handle_key, handle_list_key, handle_detail_key, handle_flows_key)
-  app.rs        — App state, View (List/Detail/Flows), ProcessFilter, ProcessPicker,
-                  InterfacePicker, FlowInfo, bookmarks, bandwidth tracking, page nav
+                  (handle_key, handle_list_key, handle_detail_key,
+                  handle_flows_key, handle_stream_key, handle_mouse)
+  app.rs        — App state, View (List/Detail/Flows/Stream), ProcessFilter,
+                  ProcessPicker, InterfacePicker, FlowInfo, bookmarks,
+                  bandwidth tracking, page nav, column widths, DNS cache,
+                  stream data, payload search helpers
   capture.rs    — libpcap capture thread with AtomicBool stop, list_interfaces()
   clipboard.rs  — pbcopy/xclip clipboard helper
   config.rs     — theme persistence (TOML via directories crate)
+  dns.rs        — reverse DNS resolution via libc getnameinfo, batch resolver,
+                  display helper
   export.rs     — write_pcap + read_pcap (classic libpcap format)
   hex.rs        — hexyl-style hex dump renderer, hex_dump_plain, hex_string
   packet.rs     — packet parsing (IPv4/IPv6), DecodedField, FlowKey,
-                  TCP/UDP/ICMP/ARP decode
+                  TCP/UDP/ICMP/ARP decode, TLS handshake decode (SNI extraction)
   process.rs    — lsof-based process socket resolution
   theme.rs      — 16 themes (8 dark + 8 light), Ghostty auto-detection
   ui/
-    mod.rs      — main layout dispatcher (list/detail/flows layouts)
+    mod.rs      — main layout dispatcher (list/detail/flows/stream layouts)
     header.rs   — pastel-colored title bar, live/paused badge, packet count
-    list.rs     — packet table with flow colors, bookmarks, search bar
-    detail.rs   — packet info bar, decoded fields panel, hex dump pane
+    list.rs     — packet table with flow colors, bookmarks, search bar,
+                  adjustable column widths, DNS display
+    detail.rs   — packet info bar, decoded fields panel, hex dump pane,
+                  TCP stream content view
     flows.rs    — flows table (proto, endpoints, packets, bytes)
-    footer.rs   — key badge bar + status message + process filter + theme + version
+    footer.rs   — adaptive key hints (priority-ordered, width-aware),
+                  status message, process filter, theme, version
     picker.rs   — process picker + interface picker overlays
-    stats.rs    — protocol counts, bytes, filter, flow indicator, bandwidth sparkline
+    stats.rs    — protocol counts, bytes, filter, flow indicator,
+                  bandwidth sparkline, capture duration, packets/sec
     helpers.rs  — shared UI utilities (stripe, highlight, key_badge, muted_span)
 ```
 
@@ -92,6 +103,13 @@ and their light variants.
 - **Interface switching**: `AtomicBool` stop signal + capture thread restart; mutex guard dropped before restart to avoid deadlock.
 - **Pcap format**: Classic libpcap (magic `0xA1B2C3D4`) for universal Wireshark/tcpdump compatibility.
 - **Process filtering**: Software post-filter via lsof socket resolution (BPF can't filter by PID).
+- **Payload search**: Search falls back from metadata → ASCII payload → hex pattern matching.
+- **DNS resolution**: Background thread resolves IPs via libc `getnameinfo`; opt-in via `D` key.
+- **TCP stream follow**: Capture-order payload concatenation per flow; no sequence-number reassembly.
+- **TLS decode**: Inline in TCP decode — record type, version, handshake type, SNI extraction.
+- **Mouse support**: Scroll wheel for navigation across all views; no click-to-select.
+- **Column resizing**: `Tab`/`<`/`>` keyboard-driven; i16 deltas from base widths.
+- **Adaptive footer**: Priority-ordered key hints, truncated to fit available width.
 
 ## Conventions
 
