@@ -110,7 +110,7 @@ pub fn run_loop(
     bpf_filter: Option<&str>,
     geoip_db: Option<&Arc<geoip::GeoDb>>,
     agent_pipe: &mut Option<agent::AgentPipe>,
-    socket_server: Option<&agent::SocketServer>,
+    socket_server: &mut Option<agent::SocketServer>,
     agent_output: &agent::AgentOutput,
     agent_commands: &agent::AgentCommands,
 ) -> Result<()> {
@@ -146,20 +146,106 @@ pub fn run_loop(
             if let Some(preset_idx) = a.pending_agent_spawn.take()
                 && let Some(preset) = agent::AGENT_PRESETS.get(preset_idx)
             {
-                match agent::AgentPipe::spawn(
-                    preset.command,
-                    Arc::clone(agent_output),
-                    agent_commands,
-                ) {
-                    Ok(pipe) => {
-                        *agent_pipe = Some(pipe);
-                        a.show_agent_pane = true;
-                        a.agent_name = Some(preset.name.to_string());
-                        a.agent_scroll = 0;
-                        a.set_status(format!("Agent: {}", preset.name));
+                if preset.spawn_mode == agent::SpawnMode::Split {
+                    // Ensure a socket exists for bidirectional communication.
+                    let sock_path = if let Some(ref srv) = *socket_server {
+                        srv.path().to_string()
+                    } else {
+                        let path = std::env::temp_dir()
+                            .join(format!(
+                                "hexcap_{}.sock",
+                                std::process::id()
+                            ))
+                            .to_string_lossy()
+                            .to_string();
+                        match agent::SocketServer::bind(&path, agent_commands) {
+                            Ok(srv) => {
+                                *socket_server = Some(srv);
+                                path
+                            }
+                            Err(e) => {
+                                a.set_status(format!("Socket failed: {e}"));
+                                continue;
+                            }
+                        }
+                    };
+
+                    // If agent is already running (socket exists), just
+                    // show a status — don't spawn another split.
+                    if a.agent_name.as_deref() == Some(preset.name) {
+                        a.set_status(format!(
+                            "{} already open (socket: {sock_path})",
+                            preset.name
+                        ));
+                    } else if let Some(agent_bin) = agent::resolve_binary(preset.binary) {
+                        match agent::open_split(&agent_bin, &sock_path) {
+                            Ok(true) => {
+                                a.agent_name = Some(preset.name.to_string());
+                                a.set_status(format!(
+                                    "Opened {} split (socket: {sock_path})",
+                                    preset.name
+                                ));
+                            }
+                            Ok(false) => {
+                                a.set_status(format!(
+                                    "{}: no split support (need Ghostty/tmux/WezTerm/Zellij)",
+                                    preset.name
+                                ));
+                            }
+                            Err(e) => {
+                                a.set_status(format!("{} split failed: {e}", preset.name));
+                            }
+                        }
+                    } else {
+                        a.set_status(format!(
+                            "{} not found — install {} first",
+                            preset.binary, preset.name
+                        ));
                     }
-                    Err(e) => {
-                        a.set_status(format!("Agent failed: {e}"));
+                } else {
+                    // Prompt mode: snapshot packets, spawn non-interactively.
+                    let pkt_count = a.packets.len();
+                    let snapshot_path = std::env::temp_dir().join(format!(
+                        "hexcap_agent_{}.pcap",
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    ));
+                    let packets_ref: Vec<&crate::packet::CapturedPacket> =
+                        a.packets.iter().collect();
+                    let snapshot_ok =
+                        crate::export::write_pcap(&snapshot_path, &packets_ref).is_ok();
+
+                    if snapshot_ok {
+                        let pcap_str = snapshot_path.to_string_lossy();
+                        let cmd = agent::expand_command(
+                            preset.command_template,
+                            &pcap_str,
+                            pkt_count,
+                        );
+                        a.set_status(format!("Spawning {}...", preset.name));
+                        if let Ok(mut buf) = agent_output.lock() {
+                            buf.clear();
+                        }
+                        match agent::AgentPipe::spawn_prompt(
+                            &cmd,
+                            Arc::clone(agent_output),
+                            agent_commands,
+                        ) {
+                            Ok(pipe) => {
+                                *agent_pipe = Some(pipe);
+                                a.show_agent_pane = true;
+                                a.agent_name = Some(preset.name.to_string());
+                                a.agent_scroll = 0;
+                                a.set_status(format!("Agent: {}", preset.name));
+                            }
+                            Err(e) => {
+                                a.set_status(format!("Agent failed: {e}"));
+                            }
+                        }
+                    } else {
+                        a.set_status("Failed to snapshot packets for agent".into());
                     }
                 }
             }
@@ -264,7 +350,8 @@ pub fn run_loop(
                 }
                 Event::Mouse(mouse) => {
                     let mut app_guard = app.lock().expect("app mutex poisoned");
-                    keys::handle_mouse(&mut app_guard, mouse.kind);
+                    let term_height = terminal.size().map(|s| s.height).unwrap_or(24);
+                    keys::handle_mouse(&mut app_guard, mouse, term_height);
                 }
                 _ => {}
             }

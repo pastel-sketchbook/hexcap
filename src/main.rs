@@ -258,8 +258,8 @@ fn main() -> Result<()> {
         None
     };
 
-    let socket_server = if let Some(ref path) = cli.socket {
-        match agent::SocketServer::bind(path) {
+    let mut socket_server = if let Some(ref path) = cli.socket {
+        match agent::SocketServer::bind(path, &agent_commands) {
             Ok(srv) => {
                 if let Ok(mut a) = app.lock() {
                     a.set_status(format!("Agent socket: {path}"));
@@ -399,7 +399,7 @@ fn main() -> Result<()> {
         bpf_filter.as_deref(),
         geoip_db.as_ref(),
         &mut agent_pipe,
-        socket_server.as_ref(),
+        &mut socket_server,
         &agent_output,
         &agent_commands,
     );

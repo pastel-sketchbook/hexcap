@@ -222,6 +222,10 @@ pub struct App {
     pub agent_output: crate::agent::AgentOutput,
     /// Scroll offset within the agent pane.
     pub agent_scroll: usize,
+    /// Main/agent pane split ratio (percentage for main pane, 20..80).
+    pub agent_pane_ratio: u16,
+    /// Whether the user is currently dragging the agent pane border.
+    pub agent_pane_dragging: bool,
     /// Agent picker overlay.
     pub agent_picker: Option<AgentPicker>,
     /// The command that was used to spawn the current agent (for display).
@@ -373,6 +377,8 @@ impl App {
             show_agent_pane: false,
             agent_output: crate::agent::new_output(),
             agent_scroll: 0,
+            agent_pane_ratio: 65,
+            agent_pane_dragging: false,
             agent_picker: None,
             agent_name: None,
             agent_commands: crate::agent::new_commands(),

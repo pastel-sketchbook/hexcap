@@ -334,14 +334,27 @@ hexcap stream capture.pcap --flow 10.0.0.1:4321-93.184.216.34:443
 ```bash
 # Pipe live packets to an agent script, see output in bottom pane
 sudo hexcap --pipe "uv run analyze.py"
-# Toggle pane: A, scroll: J/K
+# Toggle pane: A, scroll: J/K, drag border to resize
 ```
 
-**Agent socket (broadcast JSONL to external clients):**
+**Agent socket (bidirectional JSONL + command channel):**
 ```bash
-# Start hexcap with UDS broadcast
+# Start hexcap with UDS (broadcasts packets, reads @@HEXCAP: commands)
 sudo hexcap --socket /tmp/hexcap.sock
-# External agent connects: socat UNIX-CONNECT:/tmp/hexcap.sock -
+
+# External agent connects to read packets:
+socat UNIX-CONNECT:/tmp/hexcap.sock -
+
+# External agent sends commands back:
+echo '@@HEXCAP:{"action":"filter","value":"tcp"}' | socat - UNIX-CONNECT:/tmp/hexcap.sock
+```
+
+**Agent split mode (Amp in terminal split):**
+```bash
+# Press A in hexcap, select Amp → opens in Ghostty/tmux right split
+# Amp gets HEXCAP_SOCKET env var to send commands back:
+echo '@@HEXCAP:{"action":"flows"}' | socat - UNIX-CONNECT:$HEXCAP_SOCKET
+# If Amp is already open, selecting it again shows the socket path
 ```
 
 **Enriched headless output:**
@@ -382,7 +395,11 @@ hexcap read capture.pcap --dns --geoip country.mmdb --compact
 - DNS resolution: libc `getnameinfo`, background batch resolver
 - GeoIP: `maxminddb` crate, inline during display (not capture)
 - Ring buffer: `VecDeque` bounded by `--max-packets`
-- Agent pipe: spawns child via `sh -c`, JSONL to stdin, stdout read into ring buffer, displayed in 35% bottom split pane
-- Agent socket: Unix domain socket, accepts multiple clients, broadcasts JSONL; cleaned up on drop
-- Agent picker: `A` key opens picker listing Copilot, OpenCode, Gemini, Amp; spawns selection as pipe child
-- Agent command protocol: agents write `@@HEXCAP:{"action":"..."}` to stdout to control TUI; supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`
+- Agent pipe: spawns child via `sh -c`, JSONL to stdin, stdout read into ring buffer, displayed in bottom split pane (markdown-rendered via `tui-markdown`)
+- Agent pane: resizable by dragging the border chrome (mouse drag, clamped 20%-80%); mouse scroll routes to agent pane when scrolling in its area
+- Agent socket: Unix domain socket, bidirectional — broadcasts JSONL to clients AND reads `@@HEXCAP:` commands from clients; auto-created for split agents; cleaned up on drop
+- Agent picker: `A` key opens picker listing Copilot, OpenCode, Gemini, Amp; Copilot/OpenCode/Gemini spawn in prompt mode (snapshot pcap, non-interactive CLI); Amp spawns in terminal split mode (Ghostty/tmux/WezTerm/Zellij)
+- Agent split mode: opens agent TUI in a right-side terminal split pane; Ghostty (AppleScript), tmux, WezTerm, Zellij supported; `HEXCAP_SOCKET` env var set so agent can send commands back; won't spawn duplicate if agent already open
+- Ghostty detection: `GHOSTTY_RESOURCES_DIR` → `TERM_PROGRAM` → `pgrep -xi ghostty` (works under sudo which strips env vars)
+- Agent command protocol: agents write `@@HEXCAP:{"action":"..."}` to stdout (pipe mode) or to the Unix socket (split mode) to control TUI; supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`
+- ANSI stripping: agent stdout/stderr lines have escape sequences stripped before display

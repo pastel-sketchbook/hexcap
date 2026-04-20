@@ -393,10 +393,7 @@ pub fn theme_index_by_name(name: &str) -> usize {
 /// Reads `~/.config/ghostty/config` (or macOS app support path) and
 /// parses `theme = <name>` to map known Ghostty themes to hexcap themes.
 pub fn detect_ghostty_theme() -> Option<usize> {
-    let is_ghostty = std::env::var("TERM_PROGRAM").is_ok_and(|v| v.eq_ignore_ascii_case("ghostty"))
-        || std::env::var("GHOSTTY_RESOURCES_DIR").is_ok();
-
-    if !is_ghostty {
+    if !crate::ui::helpers::is_ghostty() {
         return None;
     }
 

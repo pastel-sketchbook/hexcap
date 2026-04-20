@@ -13,6 +13,32 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+/// Strip ANSI escape sequences from a string so agent output renders cleanly.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            // CSI sequence: ESC [ ... final_byte
+            if let Some(next) = chars.next()
+                && next == '['
+            {
+                // Consume until final byte (0x40-0x7E).
+                for c in chars.by_ref() {
+                    if ('\x40'..='\x7e').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            // OSC (ESC ]) or other sequences: already consumed by the
+            // `chars.next()` in the `if let` above.
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
@@ -20,36 +46,155 @@ use serde::Deserialize;
 // Agent presets
 // ---------------------------------------------------------------------------
 
+/// How an agent preset should be spawned.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SpawnMode {
+    /// Run non-interactively: pipe stdout into the agent pane.
+    Prompt,
+    /// Open in a terminal split pane (Ghostty/tmux/WezTerm/Zellij) or
+    /// full-screen takeover when no split support is detected.
+    Split,
+}
+
 /// Built-in agent presets available in the agent picker.
 pub struct AgentPreset {
     pub name: &'static str,
-    pub command: &'static str,
+    /// Shell command template. `{pcap}` is replaced with the snapshot pcap path,
+    /// `{prompt}` is replaced with the analysis prompt.
+    pub command_template: &'static str,
+    /// The binary name (for `which` resolution in split mode).
+    pub binary: &'static str,
     pub description: &'static str,
+    pub spawn_mode: SpawnMode,
 }
 
 /// The 4 supported coding agents.
 pub const AGENT_PRESETS: &[AgentPreset] = &[
     AgentPreset {
         name: "Copilot",
-        command: "copilot",
+        command_template: "copilot -p {prompt} --allow-all-tools",
+        binary: "copilot",
         description: "GitHub Copilot CLI",
+        spawn_mode: SpawnMode::Prompt,
     },
     AgentPreset {
         name: "OpenCode",
-        command: "opencode",
+        command_template: "opencode run {prompt}",
+        binary: "opencode",
         description: "OpenCode coding agent",
+        spawn_mode: SpawnMode::Prompt,
     },
     AgentPreset {
         name: "Gemini",
-        command: "gemini",
+        command_template: "gemini -p {prompt} -o text",
+        binary: "gemini",
         description: "Google Gemini CLI",
+        spawn_mode: SpawnMode::Prompt,
     },
     AgentPreset {
         name: "Amp",
-        command: "amp",
+        command_template: "amp",
+        binary: "amp",
         description: "Amp coding agent",
+        spawn_mode: SpawnMode::Split,
     },
 ];
+
+/// Resolve the absolute path of a binary via `which`.
+pub fn resolve_binary(name: &str) -> Option<String> {
+    Command::new("which")
+        .arg(name)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| {
+            let s = String::from_utf8(o.stdout).ok()?;
+            let trimmed = s.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+}
+
+/// Open an agent in a terminal split pane (right side).
+///
+/// Supports Ghostty (AppleScript), tmux, WezTerm, and Zellij.
+/// Sets `HEXCAP_SOCKET` in the agent's environment so it can send commands back.
+/// Returns `Ok(true)` if a split was opened, `Ok(false)` if no supported
+/// terminal was detected (caller should fall back to full-screen).
+pub fn open_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
+    use std::env;
+
+    // Wrap agent binary with HEXCAP_SOCKET env so it can send commands back.
+    let wrapped = format!("HEXCAP_SOCKET={socket_path} exec {agent_bin}");
+
+    let result = if env::var("TMUX").is_ok() {
+        Command::new("tmux")
+            .args(["split-window", "-h", "-l", "60%", "sh", "-c", &wrapped])
+            .spawn()
+    } else if env::var("WEZTERM_PANE").is_ok() || env::var("WEZTERM_EXECUTABLE").is_ok() {
+        Command::new("wezterm")
+            .args([
+                "cli",
+                "split-pane",
+                "--right",
+                "--percent",
+                "60",
+                "--",
+                "sh",
+                "-c",
+                &wrapped,
+            ])
+            .spawn()
+    } else if env::var("ZELLIJ").is_ok() {
+        Command::new("zellij")
+            .args(["action", "new-pane", "-d", "right", "--", "sh", "-c", &wrapped])
+            .spawn()
+    } else if crate::ui::helpers::is_ghostty() {
+        // Ghostty on macOS: AppleScript to split the focused terminal.
+        // Wrap in /bin/zsh -l -c so the agent gets the user's PATH.
+        let script = format!(
+            r#"tell application "Ghostty"
+    set cfg to new surface configuration
+    set command of cfg to "/bin/zsh -l -c 'export HEXCAP_SOCKET={socket_path}; exec {agent_bin}'"
+    set t to focused terminal of selected tab of front window
+    split t direction right with configuration cfg
+end tell"#
+        );
+        Command::new("osascript").args(["-e", &script]).spawn()
+    } else {
+        return Ok(false);
+    };
+
+    match result {
+        Ok(_) => Ok(true),
+        Err(e) => Err(anyhow::anyhow!("Failed to open split: {e}")),
+    }
+}
+
+/// Build the agent analysis prompt, referencing the pcap snapshot file.
+pub fn build_prompt(pcap_path: &str, packet_count: usize) -> String {
+    format!(
+        "You have the hexcap skill. Use `hexcap read {pcap}`, `hexcap flows {pcap}`, \
+         `hexcap stats {pcap}`, and `hexcap stream {pcap}` to analyze the capture. \
+         The file contains {count} packets. Provide a summary of the traffic: \
+         protocols seen, notable flows, any anomalies or interesting patterns.",
+        pcap = pcap_path,
+        count = packet_count,
+    )
+}
+
+/// Expand a command template, replacing `{prompt}` and `{pcap}` placeholders.
+pub fn expand_command(template: &str, pcap_path: &str, packet_count: usize) -> String {
+    let prompt = build_prompt(pcap_path, packet_count);
+    // Shell-quote the prompt (single quotes, escape inner single quotes).
+    let quoted = format!("'{}'", prompt.replace('\'', "'\\''"));
+    template
+        .replace("{prompt}", &quoted)
+        .replace("{pcap}", pcap_path)
+}
 
 // ---------------------------------------------------------------------------
 // Agent commands (agent → TUI)
@@ -163,9 +308,67 @@ impl AgentPipe {
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
 
-        // Background thread to read child stdout.
-        if let Some(stdout) = stdout {
+        Self::start_reader(stdout, &output, commands);
+
+        Ok(Self {
+            child,
+            stdin,
+            _output: output,
+        })
+    }
+
+    /// Spawn an agent in prompt mode (no stdin pipe).
+    ///
+    /// The agent receives its context via CLI args (referencing a pcap file)
+    /// and uses `hexcap` subcommands to analyze it. Stdin is closed immediately.
+    pub fn spawn_prompt(cmd: &str, output: AgentOutput, commands: &AgentCommands) -> Result<Self> {
+        let mut child = Command::new("sh")
+            .args(["-c", cmd])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("failed to spawn agent: {cmd}"))?;
+
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+
+        Self::start_reader(stdout, &output, commands);
+
+        // Also read stderr into the output buffer so we see agent errors.
+        if let Some(stderr) = stderr {
             let out = Arc::clone(&output);
+            thread::Builder::new()
+                .name("agent-stderr".into())
+                .spawn(move || {
+                    let reader = BufReader::new(stderr);
+                    for line in reader.lines() {
+                        let Ok(line) = line else { break };
+                        let mut buf = out.lock().expect("agent output mutex poisoned");
+                        if buf.len() >= AGENT_OUTPUT_MAX {
+                            buf.pop_front();
+                        }
+                        buf.push_back(strip_ansi(&line));
+                    }
+                })
+                .ok();
+        }
+
+        Ok(Self {
+            child,
+            stdin: None,
+            _output: output,
+        })
+    }
+
+    /// Start a background thread to read child stdout lines.
+    fn start_reader(
+        stdout: Option<std::process::ChildStdout>,
+        output: &AgentOutput,
+        commands: &AgentCommands,
+    ) {
+        if let Some(stdout) = stdout {
+            let out = Arc::clone(output);
             let cmds = Arc::clone(commands);
             thread::Builder::new()
                 .name("agent-stdout".into())
@@ -173,7 +376,6 @@ impl AgentPipe {
                     let reader = BufReader::new(stdout);
                     for line in reader.lines() {
                         let Ok(line) = line else { break };
-                        // Check for command prefix.
                         if let Some(cmd) = parse_command(&line) {
                             if let Ok(mut q) = cmds.lock() {
                                 q.push_back(cmd);
@@ -183,18 +385,12 @@ impl AgentPipe {
                             if buf.len() >= AGENT_OUTPUT_MAX {
                                 buf.pop_front();
                             }
-                            buf.push_back(line);
+                            buf.push_back(strip_ansi(&line));
                         }
                     }
                 })
                 .ok();
         }
-
-        Ok(Self {
-            child,
-            stdin,
-            _output: output,
-        })
     }
 
     /// Write a JSONL line (packet) to the child's stdin.
@@ -226,7 +422,8 @@ impl Drop for AgentPipe {
 
 use std::os::unix::net::UnixListener;
 
-/// A Unix domain socket server that broadcasts JSONL to connected clients.
+/// A Unix domain socket server that broadcasts JSONL to connected clients
+/// and reads `@@HEXCAP:` commands from them (bidirectional).
 pub struct SocketServer {
     _listener: UnixListener,
     clients: Arc<Mutex<Vec<std::os::unix::net::UnixStream>>>,
@@ -235,7 +432,10 @@ pub struct SocketServer {
 
 impl SocketServer {
     /// Create a UDS at the given path and start accepting connections.
-    pub fn bind(path: &str) -> Result<Self> {
+    ///
+    /// Each connected client gets a reader thread that parses incoming
+    /// `@@HEXCAP:` command lines and pushes them to the shared command queue.
+    pub fn bind(path: &str, commands: &AgentCommands) -> Result<Self> {
         // Remove stale socket file.
         let _ = std::fs::remove_file(path);
 
@@ -248,6 +448,7 @@ impl SocketServer {
 
         // Background thread to accept new connections.
         let accept_clients = Arc::clone(&clients);
+        let accept_cmds = Arc::clone(commands);
         let accept_listener = listener
             .try_clone()
             .context("failed to clone UDS listener")?;
@@ -258,10 +459,29 @@ impl SocketServer {
                     match accept_listener.accept() {
                         Ok((stream, _)) => {
                             let _ = stream.set_nonblocking(false);
-                            let mut cl = accept_clients
-                                .lock()
-                                .expect("socket clients mutex poisoned");
-                            cl.push(stream);
+                            // Clone for broadcast list.
+                            if let Ok(write_stream) = stream.try_clone() {
+                                let mut cl = accept_clients
+                                    .lock()
+                                    .expect("socket clients mutex poisoned");
+                                cl.push(write_stream);
+                            }
+                            // Spawn reader thread for this client.
+                            let cmds = Arc::clone(&accept_cmds);
+                            thread::Builder::new()
+                                .name("agent-socket-reader".into())
+                                .spawn(move || {
+                                    let reader = BufReader::new(stream);
+                                    for line in reader.lines() {
+                                        let Ok(line) = line else { break };
+                                        if let Some(cmd) = parse_command(&line)
+                                            && let Ok(mut q) = cmds.lock()
+                                        {
+                                            q.push_back(cmd);
+                                        }
+                                    }
+                                })
+                                .ok();
                         }
                         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                             std::thread::sleep(std::time::Duration::from_millis(100));

@@ -42,7 +42,10 @@ pub fn render(frame: &mut Frame, app: &App) {
     let (main_area, agent_area) = if app.show_agent_pane {
         let split = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+            .constraints([
+                Constraint::Percentage(app.agent_pane_ratio),
+                Constraint::Percentage(100 - app.agent_pane_ratio),
+            ])
             .split(area);
         (split[0], Some(split[1]))
     } else {

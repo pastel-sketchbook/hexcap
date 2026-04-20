@@ -56,9 +56,14 @@ terminal.
 - **Help overlay** — `?` shows all keybindings in a popup
 - **Vim keybindings** — j/k, g/G, d/u, Enter, Esc, /
 - **Headless/JSON mode** — CLI subcommands and `--json` flag for agent/pipeline consumption
-- **Agent pipe** — `--pipe "command"` spawns a child, feeds JSONL to stdin, displays stdout in a 35% bottom pane
+- **Agent pipe** — `--pipe "command"` spawns a child, feeds JSONL to stdin, displays stdout in a bottom split pane
 - **Agent socket** — `--socket /path` creates a Unix domain socket broadcasting JSONL to all connected clients
 - **Agent picker** — `A` key opens picker to select from Copilot, OpenCode, Gemini, Amp agents
+- **Agent spawn modes** — prompt mode (non-interactive CLI) for Copilot/OpenCode/Gemini; split mode (terminal split pane) for Amp
+- **Agent markdown rendering** — agent output rendered as markdown in the TUI pane via `tui-markdown`
+- **Agent ANSI stripping** — ANSI escape sequences stripped from agent output before display
+- **Draggable agent pane** — mouse drag on pane border resizes (20%-80% range)
+- **Bidirectional agent socket** — agents send `@@HEXCAP:` commands back via Unix socket; auto-created for split agents
 - **Agent commands** — agents control the TUI via `@@HEXCAP:` protocol (filter, goto, pause, export, etc.)
 
 ## Install
@@ -249,8 +254,10 @@ The last selected theme is persisted to `~/.config/hexcap/preferences.toml`.
 
 ```
 src/
-  main.rs       — entry point, terminal setup, event loop, key dispatch
-  agent.rs      — agent pipe (child process JSONL feed) and socket server (UDS broadcast)
+  main.rs       — entry point, CLI structs, terminal setup
+  keys.rs       — key/mouse event handlers (list, detail, flows, stream views)
+  event_loop.rs — main event loop, agent command execution
+  agent.rs      — agent pipe/prompt/split spawn, socket server, ANSI stripping, markdown rendering
   app.rs        — application state, navigation, filtering, flow tracking
   capture.rs    — libpcap capture thread with AtomicBool stop signal
   clipboard.rs  — system clipboard helper (pbcopy/xclip)
@@ -275,7 +282,7 @@ src/
     footer.rs   — adaptive key hints (priority-ordered, width-aware)
     picker.rs   — process + interface picker overlays
     stats.rs    — protocol counts, bandwidth sparkline, duration, PPS
-    helpers.rs  — shared UI utilities
+    helpers.rs  — shared UI utilities, Ghostty detection helper
     help.rs     — keyboard shortcut help overlay
     stats_summary.rs — capture statistics summary overlay
     expert_overlay.rs — expert information overlay

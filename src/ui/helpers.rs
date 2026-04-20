@@ -90,3 +90,24 @@ pub fn key_badge<'a>(key: &str, theme: &Theme) -> Span<'a> {
 pub fn muted_span<'a>(text: &str, theme: &Theme) -> Span<'a> {
     Span::styled(text.to_string(), Style::default().fg(theme.muted))
 }
+
+/// Detect if we're running inside Ghostty.
+///
+/// Checks `GHOSTTY_RESOURCES_DIR` first (fast path), then `TERM_PROGRAM`,
+/// then falls back to checking if the Ghostty process is running (macOS).
+/// The fallback is needed because `sudo` strips environment variables.
+pub fn is_ghostty() -> bool {
+    if std::env::var("GHOSTTY_RESOURCES_DIR").is_ok() {
+        return true;
+    }
+    if std::env::var("TERM_PROGRAM")
+        .map(|v| v.eq_ignore_ascii_case("ghostty"))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    std::process::Command::new("pgrep")
+        .args(["-xi", "ghostty"])
+        .output()
+        .is_ok_and(|o| o.status.success())
+}

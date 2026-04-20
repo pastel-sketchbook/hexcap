@@ -18,7 +18,8 @@ protocol, process, and flow. Support interface switching, pcap export/import,
 clipboard copy, bookmarks, live bandwidth tracking, DNS resolution, TCP stream
 follow, TLS handshake decode, mouse scrolling, column resizing, semantic packet
 coloring, capture statistics, packet diff, display filters, GeoIP lookup,
-packet annotations, follow speed cycling, and keyboard shortcut help.
+packet annotations, follow speed cycling, keyboard shortcut help, and
+agent integration (prompt mode, split mode, bidirectional socket).
 
 ## Build & Run
 
@@ -43,19 +44,29 @@ packet annotations, follow speed cycling, and keyboard shortcut help.
 - `libc` — reverse DNS resolution via `getnameinfo`.
 - `maxminddb` — GeoIP country lookup from MaxMind MMDB files.
 - `serde_json` — JSON serialization for headless/agent-friendly output.
+- `tui-markdown` — markdown rendering for agent pane output.
 
 ## Architecture
 
 ```
 src/
-  main.rs       — entry point, terminal setup, event loop, key dispatch
-                  (handle_key, handle_list_key, handle_detail_key,
-                  handle_flows_key, handle_stream_key, handle_mouse)
-  agent.rs      — AgentPipe (child process JSONL feed), SocketServer (UDS broadcast)
+  main.rs       — entry point, CLI structs, terminal setup
+  keys.rs       — key/mouse event handlers (handle_key, handle_list_key,
+                  handle_detail_key, handle_flows_key, handle_stream_key,
+                  handle_mouse)
+  event_loop.rs — main event loop (run_loop), agent command execution
+                  (execute_agent_command)
+  agent.rs      — AgentPipe (child process JSONL feed), SpawnMode (Prompt/Split),
+                  AgentPreset with command_template/binary/spawn_mode,
+                  spawn_prompt() for non-interactive agents, open_split() for
+                  terminal split pane agents (Ghostty/tmux/WezTerm/Zellij),
+                  SocketServer (UDS broadcast + bidirectional @@HEXCAP: read),
+                  strip_ansi(), resolve_binary(), expand_command(), build_prompt()
   app.rs        — App state, View (List/Detail/Flows/Stream), ProcessFilter,
                   ProcessPicker, InterfacePicker, FlowInfo, bookmarks,
                   bandwidth tracking, page nav, column widths, DNS cache,
-                  stream data, payload search helpers, diff mark/pair
+                  stream data, payload search helpers, diff mark/pair,
+                  agent_pane_ratio, agent_pane_dragging
   capture.rs    — libpcap capture thread with AtomicBool stop, list_interfaces()
   clipboard.rs  — pbcopy/xclip clipboard helper
   config.rs     — theme persistence (TOML via directories crate)
@@ -90,12 +101,13 @@ src/
     picker.rs   — process picker + interface picker overlays
     stats.rs    — protocol counts, bytes, filter, flow indicator,
                   bandwidth sparkline, capture duration, packets/sec
-    helpers.rs  — shared UI utilities (stripe, highlight, key_badge, muted_span)
+    helpers.rs  — shared UI utilities (stripe, highlight, key_badge, muted_span,
+                  is_ghostty detection helper)
     help.rs     — keyboard shortcut help overlay
     stats_summary.rs — capture statistics summary overlay
     diff.rs     — packet hex diff overlay
     flow_graph.rs — flow sequence diagram overlay (navigable)
-    agent_pane.rs — agent output split pane rendering
+    agent_pane.rs — agent output split pane with markdown rendering
 ```
 
 ## Theme System
@@ -105,10 +117,11 @@ Default, Gruvbox, Solarized, Ayu, Flexoki, Zoegi, FFE Dark, Postrboard,
 and their light variants.
 
 - Press `t` to cycle themes at runtime.
-- **Ghostty auto-detection**: on startup, reads `~/.config/ghostty/config`
-  (or macOS app support path), parses `theme = <name>`, and maps known
-  Ghostty theme families (gruvbox, solarized, ayu, flexoki, ffe, etc.)
-  to the matching hexcap theme index.
+- **Ghostty auto-detection**: `is_ghostty()` helper in `ui/helpers.rs` provides
+  3-tier detection: env var `GHOSTTY_RESOURCES_DIR` → `TERM_PROGRAM` →
+  `pgrep -xi ghostty` (case-insensitive, works under sudo). On startup, reads
+  `~/.config/ghostty/config` (or macOS app support path), parses `theme = <name>`,
+  and maps known Ghostty theme families to the matching hexcap theme index.
 - Theme persisted to `~/.config/hexcap/preferences.toml`.
 - Each theme includes hex dump colors: `hex_null`, `hex_ascii`, `hex_space`,
   `hex_high`, `hex_other`, `hex_offset`.
@@ -141,8 +154,12 @@ and their light variants.
 - **Bookmark persistence**: Bookmarks saved to `.pcap.bookmarks` sidecar files alongside pcap exports.
 - **Multi-interface capture**: `-i en0,lo0` comma-separated interface list; spawns one capture thread per interface.
 - **Headless/JSON mode**: CLI subcommands (`read`, `capture`, `flows`, `stats`, `stream`, `decode`, `interfaces`) bypass the TUI and emit JSON (array or JSONL) to stdout for agent/pipeline consumption. The `--json` flag on the root CLI provides the same headless output for `--read` (JSON array) and live capture (JSONL, bounded by `--max-packets`).
-- **Agent pipe/socket**: `--pipe "command"` spawns a child process, feeds JSONL packets to its stdin, and displays stdout in a 35% bottom split pane. `--socket /path/to/sock` creates a Unix domain socket broadcasting JSONL to all connected clients. `A` toggles agent pane visibility; `J`/`K` scroll the pane.
-- **Agent picker**: `A` key (with no active agent) opens a picker to select from 4 built-in agents: Copilot, OpenCode, Gemini, Amp. Selected agent is spawned as a pipe child.
+- **Agent pipe/socket**: `--pipe "command"` spawns a child process, feeds JSONL packets to its stdin, and displays stdout in a bottom split pane. `--socket /path/to/sock` creates a Unix domain socket broadcasting JSONL to all connected clients. `A` toggles agent pane visibility; `J`/`K` scroll the pane.
+- **Agent spawn modes**: Prompt mode (`spawn_prompt`) for non-interactive agents (Copilot `-p`, OpenCode `run`, Gemini `-p`); split mode (`open_split`) for TUI agents (Amp) via Ghostty AppleScript, tmux, WezTerm, or Zellij terminal splits.
+- **Agent picker**: `A` key (with no active agent) opens a picker to select from 4 built-in agents: Copilot, OpenCode, Gemini, Amp. Selected agent is spawned in its configured mode. Duplicate spawns prevented — shows socket path if agent already active.
+- **Agent markdown/ANSI**: Agent output is ANSI-stripped (`strip_ansi()`) and rendered as markdown via `tui-markdown` in the agent pane.
+- **Draggable agent pane**: Mouse drag on agent pane border resizes between 20%-80%; `agent_pane_ratio` and `agent_pane_dragging` fields in App.
+- **Bidirectional socket**: `SocketServer::bind` accepts `&AgentCommands` for reading `@@HEXCAP:` commands from connected clients. Auto-created at `/tmp/hexcap_{pid}.sock` for split agents with `HEXCAP_SOCKET` env var.
 - **Agent command protocol**: Agents send `@@HEXCAP:{"action":"..."}` lines on stdout to control the TUI. Supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`.
 
 ## Conventions

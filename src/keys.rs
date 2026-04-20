@@ -1,11 +1,64 @@
-use crossterm::event::{KeyCode, MouseEventKind};
+use crossterm::event::{KeyCode, MouseEvent, MouseEventKind};
 
 use crate::app::{App, InputMode, View};
 use crate::{capture, clipboard, hex, process};
 
-/// Handle mouse events.
-pub fn handle_mouse(app: &mut App, kind: MouseEventKind) {
-    match kind {
+/// Handle mouse events. `term_height` is the terminal row count so we can
+/// determine which pane (main vs agent) the scroll landed in.
+pub fn handle_mouse(app: &mut App, event: MouseEvent, term_height: u16) {
+    let split_row = if app.show_agent_pane {
+        (u32::from(term_height) * u32::from(app.agent_pane_ratio) / 100) as u16
+    } else {
+        term_height
+    };
+
+    // Drag on the agent pane border to resize.
+    if app.show_agent_pane {
+        match event.kind {
+            MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+                // Start drag if click is on or near the border row.
+                let distance = event.row.abs_diff(split_row);
+                if distance <= 1 {
+                    app.agent_pane_dragging = true;
+                    return;
+                }
+            }
+            MouseEventKind::Drag(crossterm::event::MouseButton::Left)
+                if app.agent_pane_dragging =>
+            {
+                let new_ratio =
+                    (u32::from(event.row) * 100 / u32::from(term_height.max(1))) as u16;
+                app.agent_pane_ratio = new_ratio.clamp(20, 80);
+                return;
+            }
+            MouseEventKind::Up(crossterm::event::MouseButton::Left)
+                if app.agent_pane_dragging =>
+            {
+                app.agent_pane_dragging = false;
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    // Scrolls in the agent pane area.
+    if app.show_agent_pane && event.row >= split_row {
+        match event.kind {
+            MouseEventKind::ScrollDown => {
+                app.agent_scroll = app.agent_scroll.saturating_sub(1);
+            }
+            MouseEventKind::ScrollUp => {
+                let total = app.agent_output.lock().map(|o| o.len()).unwrap_or(0);
+                if app.agent_scroll < total {
+                    app.agent_scroll += 1;
+                }
+            }
+            _ => {}
+        }
+        return;
+    }
+
+    match event.kind {
         MouseEventKind::ScrollDown => match app.view {
             View::List => app.next(),
             View::Detail => app.scroll_down(),
