@@ -1,13 +1,15 @@
 ---
 name: hexcap
-version: 1.0.0
+version: 2.0.0
 description: |
   Use hexcap to capture, inspect, and analyze network packets from the terminal.
   Covers live capture, pcap import/export, protocol filtering, display filters,
   hex dump inspection, TCP stream follow, TLS handshake decode, DNS resolution,
-  GeoIP lookup, flow tracking, process filtering, packet diff, annotations, and
-  capture statistics. Use when troubleshooting network issues, analyzing traffic
-  patterns, inspecting protocols, or performing packet-level forensics.
+  GeoIP lookup, flow tracking, process filtering, packet diff, annotations,
+  capture statistics, TCP sequence analysis, expert information, protocol
+  hierarchy, flow sequence diagrams, and time display formats. Use when
+  troubleshooting network issues, analyzing traffic patterns, inspecting
+  protocols, or performing packet-level forensics.
 allowed-tools:
   - Read
   - Grep
@@ -101,6 +103,11 @@ sudo hexcap --max-packets 5000
 | `a` | Annotate selected packet |
 | `x` | Mark packet for diff / show diff (mark two, then compare) |
 | `I` | Capture statistics summary |
+| `E` | Expert information overlay (TCP analysis diagnostics) |
+| `H` | Protocol hierarchy & endpoint statistics |
+| `T` | Cycle time format (absolute / relative / delta) |
+| `R` | Toggle time reference on selected packet (t=0 point) |
+| `:` | Go to packet by number |
 | `?` | Keyboard shortcut help |
 | `Tab` | Select column to resize |
 | `<` / `>` | Narrow / widen selected column |
@@ -123,6 +130,7 @@ sudo hexcap --max-packets 5000
 |-----|--------|
 | `j` / `k` | Navigate flows |
 | `Enter` | Filter packets by selected flow |
+| `G` | Flow sequence diagram (arrow-style packet timeline) |
 | `Esc` / `q` | Back to list |
 
 ### Stream View
@@ -135,8 +143,10 @@ sudo hexcap --max-packets 5000
 
 ## Display Filters
 
-Press `\` to open the display filter bar. Tokens are space-separated (AND logic).
-Enter an empty filter to clear.
+Press `\` to open the display filter bar. Supports AND/OR combinators and
+comparison operators. Enter an empty filter to clear.
+
+### Tokens
 
 | Token | Matches |
 |-------|---------|
@@ -148,15 +158,36 @@ Enter an empty filter to clear.
 | `port:443` | Source or destination port 443 |
 | `ip:10.0.0.1` | Source or destination IP (prefix match) |
 | `syn` | TCP SYN flag set |
+| `ack` | TCP ACK flag set |
+| `psh` | TCP PSH flag set |
 | `rst` | TCP RST flag set |
 | `fin` | TCP FIN flag set |
+| `expert` | Packets with any expert information items |
+| `expert.chat` | Packets with Chat-level expert items |
+| `expert.note` | Packets with Note-level expert items |
+| `expert.warn` | Packets with Warn-level expert items |
+| `expert.error` | Packets with Error-level expert items |
+| `len>N` / `len<=N` | Packet length comparisons (`>=`, `<=`, `==`, `!=`, `>`, `<`) |
 | `!token` | Negate any token (e.g. `!arp`, `!port:22`) |
+
+### Combinators
+
+| Syntax | Meaning |
+|--------|---------|
+| `tcp port:443` | Implicit AND (space-separated) |
+| `tcp && port:443` | Explicit AND |
+| `tcp and port:443` | Explicit AND (word form) |
+| `tcp || udp` | OR combinator |
+| `tcp or udp` | OR combinator (word form) |
 
 **Examples:**
 - `tcp port:443` — HTTPS traffic only
 - `tcp syn` — TCP SYN packets (connection initiations)
 - `!arp !icmp` — Exclude ARP and ICMP
 - `ip:192.168.1 tcp` — TCP traffic from/to 192.168.1.x subnet
+- `tcp || udp` — TCP or UDP traffic
+- `len>100 && tcp` — TCP packets larger than 100 bytes
+- `expert.warn || expert.error` — Packets with warnings or errors
 
 ## Troubleshooting Workflows
 
@@ -187,8 +218,21 @@ Enter an empty filter to clear.
 ```
 1. Capture traffic for a period
 2. Press I for capture statistics (protocol distribution, top talkers)
-3. Press n for flows view (connections sorted by packets/bytes)
-4. Enter on a flow to filter packets for that connection
+3. Press H for protocol hierarchy (layered protocol tree with byte percentages)
+4. Press n for flows view (connections with directional A→B/B→A stats)
+5. Enter on a flow to filter packets for that connection
+6. Press G to see the flow sequence diagram (arrow timeline)
+```
+
+### Diagnose TCP issues
+
+```
+1. Capture traffic, then press Space to pause
+2. Press E for expert information overlay
+3. Look for Warn/Error items: retransmissions, dup ACKs, zero windows
+4. Filter with: expert.warn || expert.error
+5. Press : then type a packet number to jump directly to it
+6. Enter on a flagged packet to see expert items in the detail view
 ```
 
 ### Compare packets
@@ -284,7 +328,12 @@ hexcap stream capture.pcap --flow 10.0.0.1:4321-93.184.216.34:443
 - Shared state via `Arc<Mutex<App>>`
 - Multi-interface: one thread per interface, shared `AtomicU64` packet counter
 - Process filtering: software post-filter via lsof (BPF can't filter by PID)
-- TCP stream follow: capture-order concatenation (no sequence reassembly)
+- TCP stream follow: sequence-number ordered reassembly with overlap deduplication
+- TCP analysis: per-direction state tracking, detects retransmissions, dup ACKs, out-of-order, zero window, keep-alive, window full, gaps
+- Expert info: severity-graded items (Chat/Note/Warn/Error) from TCP analysis, displayed in detail view and overlay
+- Time formats: absolute (HH:MM:SS.mmm), relative (since first packet), delta (since previous displayed packet); time reference support
+- Protocol hierarchy: layered protocol tree (Ethernet → IPv4 → TCP → TLS) with packet counts and byte percentages
+- Flow sequence diagram: arrow-style timeline of packets between two endpoints
 - DNS resolution: libc `getnameinfo`, background batch resolver
 - GeoIP: `maxminddb` crate, inline during display (not capture)
 - Ring buffer: `VecDeque` bounded by `--max-packets`
