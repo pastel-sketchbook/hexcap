@@ -123,7 +123,7 @@ pub fn cmd_read(
     limit: usize,
     enrich: &mut Enrichment,
 ) -> Result<()> {
-    let raw = export::read_pcap(Path::new(file))?;
+    let (link_type, raw) = export::read_pcap(Path::new(file))?;
     let stdout = io::stdout();
     let mut out = stdout.lock();
 
@@ -132,7 +132,7 @@ pub fn cmd_read(
     let mut count = 0usize;
 
     for (i, (timestamp, data)) in raw.into_iter().enumerate() {
-        let mut pkt = packet::parse_packet((i + 1) as u64, &data);
+        let mut pkt = packet::parse_packet_with_link((i + 1) as u64, &data, link_type);
         pkt.timestamp = timestamp;
 
         if let Some(f) = filter
@@ -188,6 +188,8 @@ pub fn cmd_capture(
         .timeout(100)
         .open()?;
 
+    let link_type = packet::LinkType::from_dlt(cap.get_datalink().0 as u32);
+
     if let Some(f) = bpf_filter {
         cap.filter(f, true)?;
     }
@@ -200,7 +202,7 @@ pub fn cmd_capture(
     loop {
         match cap.next_packet() {
             Ok(pkt_data) => {
-                let mut pkt = packet::parse_packet(id, pkt_data.data);
+                let mut pkt = packet::parse_packet_with_link(id, pkt_data.data, link_type);
                 id += 1;
 
                 if let Some(f) = display_filter
@@ -233,11 +235,11 @@ pub fn cmd_capture(
 
 /// Extract flows from a pcap file and output as JSON array.
 pub fn cmd_flows(file: &str, compact: bool, enrich: &mut Enrichment) -> Result<()> {
-    let raw = export::read_pcap(Path::new(file))?;
+    let (link_type, raw) = export::read_pcap(Path::new(file))?;
     let mut flows: HashMap<FlowKey, FlowInfo> = HashMap::new();
 
     for (i, (timestamp, data)) in raw.into_iter().enumerate() {
-        let mut pkt = packet::parse_packet((i + 1) as u64, &data);
+        let mut pkt = packet::parse_packet_with_link((i + 1) as u64, &data, link_type);
         pkt.timestamp = timestamp;
 
         let key = FlowKey::new(&pkt.src, &pkt.dst);
@@ -312,7 +314,7 @@ struct ConversationEntry {
 
 /// Compute capture statistics from a pcap file and output as JSON.
 pub fn cmd_stats(file: &str, compact: bool, enrich: &mut Enrichment) -> Result<()> {
-    let raw = export::read_pcap(Path::new(file))?;
+    let (link_type, raw) = export::read_pcap(Path::new(file))?;
     let total_packets = raw.len();
     let mut protocols: HashMap<String, u64> = HashMap::new();
     let mut talkers: HashMap<String, u64> = HashMap::new();
@@ -320,7 +322,7 @@ pub fn cmd_stats(file: &str, compact: bool, enrich: &mut Enrichment) -> Result<(
     let mut total_bytes: u64 = 0;
 
     for (i, (timestamp, data)) in raw.into_iter().enumerate() {
-        let mut pkt = packet::parse_packet((i + 1) as u64, &data);
+        let mut pkt = packet::parse_packet_with_link((i + 1) as u64, &data, link_type);
         pkt.timestamp = timestamp;
 
         *protocols.entry(format!("{}", pkt.protocol)).or_insert(0) += 1;
@@ -401,11 +403,11 @@ pub fn cmd_stream(
     compact: bool,
     enrich: &mut Enrichment,
 ) -> Result<()> {
-    let raw = export::read_pcap(Path::new(file))?;
+    let (link_type, raw) = export::read_pcap(Path::new(file))?;
     let mut packets: Vec<CapturedPacket> = Vec::new();
 
     for (i, (timestamp, data)) in raw.into_iter().enumerate() {
-        let mut pkt = packet::parse_packet((i + 1) as u64, &data);
+        let mut pkt = packet::parse_packet_with_link((i + 1) as u64, &data, link_type);
         pkt.timestamp = timestamp;
         packets.push(pkt);
     }
@@ -494,14 +496,14 @@ pub fn cmd_stream(
 
 /// Decode a single packet from a pcap file and output as pretty JSON.
 pub fn cmd_decode(file: &str, id: u64, compact: bool, enrich: &mut Enrichment) -> Result<()> {
-    let raw = export::read_pcap(Path::new(file))?;
+    let (link_type, raw) = export::read_pcap(Path::new(file))?;
     #[allow(clippy::cast_possible_truncation)]
     let idx = id as usize;
     if id == 0 || idx > raw.len() {
         bail!("packet ID {id} out of range (1..{})", raw.len());
     }
     let (timestamp, data) = &raw[idx - 1];
-    let mut pkt = packet::parse_packet(id, data);
+    let mut pkt = packet::parse_packet_with_link(id, data, link_type);
     pkt.timestamp = *timestamp;
 
     enrich.enrich_packet(&mut pkt);

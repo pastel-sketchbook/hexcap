@@ -319,10 +319,10 @@ fn main() -> Result<()> {
     // mutex, recovery is not possible — the TUI state is inconsistent.
     // All `.expect("app mutex poisoned")` calls intentionally propagate the panic.
     let (mut capture, capture_group) = if let Some(ref path) = cli.read {
-        let raw_packets = export::read_pcap(std::path::Path::new(path))?;
+        let (link_type, raw_packets) = export::read_pcap(std::path::Path::new(path))?;
         let mut a = app.lock().expect("app mutex poisoned");
         for (i, (timestamp, data)) in raw_packets.into_iter().enumerate() {
-            let mut pkt = packet::parse_packet((i + 1) as u64, &data);
+            let mut pkt = packet::parse_packet_with_link((i + 1) as u64, &data, link_type);
             pkt.timestamp = timestamp;
             a.push_packet(pkt);
         }

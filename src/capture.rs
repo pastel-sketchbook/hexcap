@@ -7,7 +7,7 @@ use pcap::{Capture, Device};
 use tracing::{error, info};
 
 use crate::app::App;
-use crate::packet;
+use crate::packet::{self, LinkType};
 
 pub struct CaptureHandle {
     _handle: thread::JoinHandle<()>,
@@ -113,6 +113,9 @@ impl CaptureHandle {
             .open()
             .context("failed to activate capture")?;
 
+        // Detect link-layer type for correct packet parsing.
+        let link_type = LinkType::from_dlt(cap.get_datalink().0 as u32);
+
         if let Some(f) = filter {
             cap.filter(f, true)
                 .with_context(|| format!("bad BPF filter: {f}"))?;
@@ -129,7 +132,7 @@ impl CaptureHandle {
                 match cap.next_packet() {
                     Ok(pkt) => {
                         let id = counter.fetch_add(1, Ordering::Relaxed) + 1;
-                        let parsed = packet::parse_packet(id, pkt.data);
+                        let parsed = packet::parse_packet_with_link(id, pkt.data, link_type);
                         if let Ok(mut app) = app.lock() {
                             app.push_packet(parsed);
                         }

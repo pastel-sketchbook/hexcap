@@ -6,6 +6,51 @@ use serde::Serialize;
 
 use crate::expert::ExpertItem;
 
+/// Link-layer type determining how to parse packet headers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LinkType {
+    /// Standard Ethernet (14-byte header) — DLT_EN10MB (1).
+    #[default]
+    Ethernet,
+    /// BSD loopback (4-byte AF family header) — DLT_NULL (0).
+    Null,
+    /// Raw IP (no link-layer header) — DLT_RAW (12 on macOS, 228 on Linux).
+    RawIp,
+}
+
+impl LinkType {
+    /// Create from a pcap/DLT link-type value.
+    #[must_use]
+    pub fn from_dlt(dlt: u32) -> Self {
+        match dlt {
+            0 => Self::Null,
+            1 => Self::Ethernet,
+            12 | 14 | 101 | 228 => Self::RawIp,
+            _ => Self::Ethernet, // fallback
+        }
+    }
+
+    /// Return the DLT number for pcap export.
+    #[must_use]
+    pub fn to_dlt(self) -> u32 {
+        match self {
+            Self::Ethernet => 1,
+            Self::Null => 0,
+            Self::RawIp => 101,
+        }
+    }
+
+    /// Return the link-layer header length in bytes.
+    #[must_use]
+    pub fn header_len(self) -> usize {
+        match self {
+            Self::Ethernet => 14,
+            Self::Null => 4,
+            Self::RawIp => 0,
+        }
+    }
+}
+
 /// A bidirectional flow key — normalizes direction so A<>B == B<>A.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct FlowKey(pub String, pub String);
@@ -100,12 +145,17 @@ pub fn extract_port_from_addr(addr: &str) -> Option<u16> {
 }
 
 /// Minimal packet parser — extracts Ethernet → IP → protocol / addresses.
+#[allow(dead_code)]
 pub fn parse_packet(id: u64, data: &[u8]) -> CapturedPacket {
+    parse_packet_with_link(id, data, LinkType::Ethernet)
+}
+
+pub fn parse_packet_with_link(id: u64, data: &[u8], link_type: LinkType) -> CapturedPacket {
     let timestamp = SystemTime::now();
     let length = data.len();
+    let hdr_len = link_type.header_len();
 
-    // Need at least an Ethernet header (14 bytes)
-    if data.len() < 14 {
+    if data.len() < hdr_len + 1 {
         return CapturedPacket {
             id,
             timestamp,
@@ -120,45 +170,106 @@ pub fn parse_packet(id: u64, data: &[u8]) -> CapturedPacket {
         };
     }
 
-    let ethertype = u16::from_be_bytes([data[12], data[13]]);
-
-    match ethertype {
-        0x0806 => {
-            // ARP
-            let decoded = decode_arp(data);
-            CapturedPacket {
-                id,
-                timestamp,
-                protocol: Protocol::Arp,
-                src: format_mac(&data[6..12]),
-                dst: format_mac(&data[0..6]),
-                length,
-                data: data.to_vec(),
-                decoded,
-                tcp_flags: 0,
-                expert: vec![],
+    // Determine IP version / ethertype based on link layer.
+    match link_type {
+        LinkType::Null => {
+            // BSD loopback: 4-byte AF family in host byte order.
+            let af = u32::from_ne_bytes([data[0], data[1], data[2], data[3]]);
+            match af {
+                2 => parse_ipv4_at(id, timestamp, data, length, hdr_len),   // AF_INET
+                30 => parse_ipv6_at(id, timestamp, data, length, hdr_len),  // AF_INET6 (macOS)
+                10 | 24 => parse_ipv6_at(id, timestamp, data, length, hdr_len), // AF_INET6 (Linux/BSDs)
+                _ => CapturedPacket {
+                    id,
+                    timestamp,
+                    #[allow(clippy::cast_possible_truncation)]
+                    protocol: Protocol::Other(af as u8),
+                    src: "??".into(),
+                    dst: "??".into(),
+                    length,
+                    data: data.to_vec(),
+                    decoded: vec![field("AF", format!("{af}"))],
+                    tcp_flags: 0,
+                    expert: vec![],
+                },
             }
         }
-        0x0800 => parse_ipv4(id, timestamp, data, length),
-        0x86DD => parse_ipv6(id, timestamp, data, length),
-        _ => CapturedPacket {
-            id,
-            timestamp,
-            #[allow(clippy::cast_possible_truncation)]
-            protocol: Protocol::Other((ethertype >> 8) as u8),
-            src: format_mac(&data[6..12]),
-            dst: format_mac(&data[0..6]),
-            length,
-            data: data.to_vec(),
-            decoded: vec![field("EtherType", format!("0x{ethertype:04X}"))],
-            tcp_flags: 0,
-            expert: vec![],
-        },
+        LinkType::RawIp => {
+            // No link header; first byte determines IP version.
+            let version = data[0] >> 4;
+            match version {
+                4 => parse_ipv4_at(id, timestamp, data, length, 0),
+                6 => parse_ipv6_at(id, timestamp, data, length, 0),
+                _ => CapturedPacket {
+                    id,
+                    timestamp,
+                    protocol: Protocol::Other(version),
+                    src: "??".into(),
+                    dst: "??".into(),
+                    length,
+                    data: data.to_vec(),
+                    decoded: vec![],
+                    tcp_flags: 0,
+                    expert: vec![],
+                },
+            }
+        }
+        LinkType::Ethernet => {
+            if data.len() < 14 {
+                return CapturedPacket {
+                    id,
+                    timestamp,
+                    protocol: Protocol::Other(0),
+                    src: "??".into(),
+                    dst: "??".into(),
+                    length,
+                    data: data.to_vec(),
+                    decoded: vec![],
+                    tcp_flags: 0,
+                    expert: vec![],
+                };
+            }
+
+            let ethertype = u16::from_be_bytes([data[12], data[13]]);
+
+            match ethertype {
+                0x0806 => {
+                    let decoded = decode_arp(data);
+                    CapturedPacket {
+                        id,
+                        timestamp,
+                        protocol: Protocol::Arp,
+                        src: format_mac(&data[6..12]),
+                        dst: format_mac(&data[0..6]),
+                        length,
+                        data: data.to_vec(),
+                        decoded,
+                        tcp_flags: 0,
+                        expert: vec![],
+                    }
+                }
+                0x0800 => parse_ipv4_at(id, timestamp, data, length, 14),
+                0x86DD => parse_ipv6_at(id, timestamp, data, length, 14),
+                _ => CapturedPacket {
+                    id,
+                    timestamp,
+                    #[allow(clippy::cast_possible_truncation)]
+                    protocol: Protocol::Other((ethertype >> 8) as u8),
+                    src: format_mac(&data[6..12]),
+                    dst: format_mac(&data[0..6]),
+                    length,
+                    data: data.to_vec(),
+                    decoded: vec![field("EtherType", format!("0x{ethertype:04X}"))],
+                    tcp_flags: 0,
+                    expert: vec![],
+                },
+            }
+        }
     }
 }
 
-fn parse_ipv4(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> CapturedPacket {
-    if data.len() < 34 {
+fn parse_ipv4_at(id: u64, timestamp: SystemTime, data: &[u8], length: usize, ip_offset: usize) -> CapturedPacket {
+    if data.len() < ip_offset + 20 {
         return CapturedPacket {
             id,
             timestamp,
@@ -173,7 +284,7 @@ fn parse_ipv4(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
         };
     }
 
-    let ip = &data[14..];
+    let ip = &data[ip_offset..];
     let proto_byte = ip[9];
     let src_ip = format!("{}.{}.{}.{}", ip[12], ip[13], ip[14], ip[15]);
     let dst_ip = format!("{}.{}.{}.{}", ip[16], ip[17], ip[18], ip[19]);
@@ -248,8 +359,8 @@ fn parse_ports(ip: &[u8], ihl: usize) -> (u16, u16) {
     (sp, dp)
 }
 
-fn parse_ipv6(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> CapturedPacket {
-    if data.len() < 54 {
+fn parse_ipv6_at(id: u64, timestamp: SystemTime, data: &[u8], length: usize, ip_offset: usize) -> CapturedPacket {
+    if data.len() < ip_offset + 40 {
         return CapturedPacket {
             id,
             timestamp,
@@ -264,7 +375,7 @@ fn parse_ipv6(id: u64, timestamp: SystemTime, data: &[u8], length: usize) -> Cap
         };
     }
 
-    let ip6 = &data[14..];
+    let ip6 = &data[ip_offset..];
     let next_header = ip6[6];
     let hop_limit = ip6[7];
     let payload_len = u16::from_be_bytes([ip6[4], ip6[5]]);

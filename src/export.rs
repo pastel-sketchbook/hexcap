@@ -6,13 +6,14 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
 
-use crate::packet::CapturedPacket;
+use crate::packet::{CapturedPacket, LinkType};
 
 /// Pcap global header magic + version (little-endian, microsecond timestamps).
 const PCAP_MAGIC: u32 = 0xA1B2_C3D4;
 const VERSION_MAJOR: u16 = 2;
 const VERSION_MINOR: u16 = 4;
 const SNAPLEN: u32 = 65535;
+#[allow(dead_code)]
 const LINKTYPE_ETHERNET: u32 = 1;
 
 /// Write captured packets to a pcap file.
@@ -20,6 +21,11 @@ const LINKTYPE_ETHERNET: u32 = 1;
 /// The file format follows the classic libpcap format:
 /// global header (24 bytes) + per-packet (16-byte header + data).
 pub fn write_pcap(path: &Path, packets: &[&CapturedPacket]) -> Result<usize> {
+    write_pcap_with_link(path, packets, LinkType::Ethernet)
+}
+
+/// Write captured packets to a pcap file with a specific link type.
+pub fn write_pcap_with_link(path: &Path, packets: &[&CapturedPacket], link_type: LinkType) -> Result<usize> {
     let mut file =
         File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
 
@@ -30,7 +36,7 @@ pub fn write_pcap(path: &Path, packets: &[&CapturedPacket]) -> Result<usize> {
     file.write_all(&0i32.to_le_bytes())?; // thiszone
     file.write_all(&0u32.to_le_bytes())?; // sigfigs
     file.write_all(&SNAPLEN.to_le_bytes())?;
-    file.write_all(&LINKTYPE_ETHERNET.to_le_bytes())?;
+    file.write_all(&link_type.to_dlt().to_le_bytes())?;
 
     let mut count = 0usize;
     for pkt in packets {
@@ -68,10 +74,11 @@ fn timestamp_to_epoch(ts: SystemTime) -> (u32, u32) {
     }
 }
 
-/// Read packets from a pcap file, returning raw packet data with timestamps.
+/// Read packets from a pcap file, returning raw packet data with timestamps and link type.
 ///
 /// Parses the global header and iterates packet records.
-pub fn read_pcap(path: &Path) -> Result<Vec<(SystemTime, Vec<u8>)>> {
+#[allow(clippy::type_complexity)]
+pub fn read_pcap(path: &Path) -> Result<(LinkType, Vec<(SystemTime, Vec<u8>)>)> {
     let mut file =
         File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
 
@@ -87,6 +94,9 @@ pub fn read_pcap(path: &Path) -> Result<Vec<(SystemTime, Vec<u8>)>> {
     if magic != PCAP_MAGIC {
         bail!("not a pcap file (bad magic: 0x{magic:08X})");
     }
+
+    let dlt = u32::from_le_bytes([buf[20], buf[21], buf[22], buf[23]]);
+    let link_type = LinkType::from_dlt(dlt);
 
     let mut packets = Vec::new();
     let mut pos = 24; // skip global header
@@ -111,7 +121,7 @@ pub fn read_pcap(path: &Path) -> Result<Vec<(SystemTime, Vec<u8>)>> {
         pos += caplen;
     }
 
-    Ok(packets)
+    Ok((link_type, packets))
 }
 
 /// Bookmark sidecar path: same as pcap path but with `.bookmarks` extension.
