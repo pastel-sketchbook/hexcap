@@ -522,15 +522,18 @@ pub fn query_terminal_bg() -> Option<(u8, u8, u8)> {
     let fd = stdin.as_raw_fd();
 
     // Save and set raw mode manually via termios.
+    // SAFETY: zeroed termios is a valid initial state for tcgetattr to overwrite.
     let mut orig: libc::termios = unsafe { std::mem::zeroed() };
-    if unsafe { libc::tcgetattr(fd, &mut orig) } != 0 {
+    // SAFETY: fd is a valid file descriptor (stdin); orig is a valid mutable pointer.
+    if unsafe { libc::tcgetattr(fd, &raw mut orig) } != 0 {
         return None;
     }
     let mut raw = orig;
     raw.c_lflag &= !(libc::ICANON | libc::ECHO);
     raw.c_cc[libc::VMIN] = 0;
     raw.c_cc[libc::VTIME] = 1; // 100ms timeout per read
-    if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw) } != 0 {
+    // SAFETY: fd is valid; raw is a properly initialized termios struct.
+    if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw const raw) } != 0 {
         return None;
     }
 
@@ -543,6 +546,7 @@ pub fn query_terminal_bg() -> Option<(u8, u8, u8)> {
     let mut buf = Vec::with_capacity(64);
     let mut byte = [0u8; 1];
     while std::time::Instant::now() < deadline {
+        // SAFETY: fd is valid; byte buffer is valid and sized for 1 byte.
         let n = unsafe { libc::read(fd, byte.as_mut_ptr().cast(), 1) };
         if n <= 0 {
             if !buf.is_empty() {
@@ -558,15 +562,21 @@ pub fn query_terminal_bg() -> Option<(u8, u8, u8)> {
     }
 
     // Restore terminal.
-    unsafe { libc::tcsetattr(fd, libc::TCSANOW, &orig) };
+    // SAFETY: fd is valid; orig was saved by tcgetattr above.
+    unsafe { libc::tcsetattr(fd, libc::TCSANOW, &raw const orig) };
 
     // Parse: \x1b]11;rgb:RRRR/GGGG/BBBB<terminator>
     let response = String::from_utf8_lossy(&buf);
     let rgb_part = response.split("rgb:").nth(1)?;
     let rgb_part = rgb_part.trim_end_matches(['\x07', '\\', '\x1b']);
     let mut components = rgb_part.split('/');
+    // OSC 11 returns 16-bit hex components; we only use the top 2 hex digits,
+    // so values are guaranteed to fit in u8 (0..=255).
+    #[allow(clippy::cast_possible_truncation)]
     let r = u16::from_str_radix(components.next()?.get(..2)?, 16).ok()? as u8;
+    #[allow(clippy::cast_possible_truncation)]
     let g = u16::from_str_radix(components.next()?.get(..2)?, 16).ok()? as u8;
+    #[allow(clippy::cast_possible_truncation)]
     let b = u16::from_str_radix(components.next()?.get(..2)?, 16).ok()? as u8;
     Some((r, g, b))
 }
@@ -581,7 +591,9 @@ fn is_light_bg(r: u8, g: u8, b: u8) -> bool {
 /// Nudge an RGB component by `delta` (positive = lighter, negative = darker),
 /// clamped to 0..=255.
 fn nudge(c: u8, delta: i16) -> u8 {
-    (i16::from(c) + delta).clamp(0, 255) as u8
+    // clamp(0, 255) guarantees the value is non-negative and fits in u8.
+    #[allow(clippy::cast_sign_loss)]
+    { (i16::from(c) + delta).clamp(0, 255) as u8 }
 }
 
 /// Patch the two Default themes (indices 0 and 8) so their `stripe_bg`,

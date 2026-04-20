@@ -151,7 +151,7 @@ impl AgentPipe {
     ///
     /// The child's stdin receives JSONL packets; its stdout is read line by
     /// line — command lines go to `commands`, display lines go to `output`.
-    pub fn spawn(cmd: &str, output: AgentOutput, commands: AgentCommands) -> Result<Self> {
+    pub fn spawn(cmd: &str, output: AgentOutput, commands: &AgentCommands) -> Result<Self> {
         let mut child = Command::new("sh")
             .args(["-c", cmd])
             .stdin(Stdio::piped())
@@ -166,7 +166,7 @@ impl AgentPipe {
         // Background thread to read child stdout.
         if let Some(stdout) = stdout {
             let out = Arc::clone(&output);
-            let cmds = Arc::clone(&commands);
+            let cmds = Arc::clone(commands);
             thread::Builder::new()
                 .name("agent-stdout".into())
                 .spawn(move || {

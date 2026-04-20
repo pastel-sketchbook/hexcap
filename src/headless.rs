@@ -21,7 +21,7 @@ use crate::packet::{
     self, CapturedPacket, FlowKey, Protocol, extract_tcp_payload, matches_display_filter,
 };
 
-/// Optional enrichment for headless output (GeoIP + DNS).
+/// Optional enrichment for headless output (`GeoIP` + DNS).
 pub struct Enrichment {
     pub geo_db: Option<geoip::GeoDb>,
     pub dns: bool,
@@ -40,7 +40,7 @@ impl Enrichment {
         }
     }
 
-    /// Enrich an address string with DNS hostname and/or GeoIP country code.
+    /// Enrich an address string with DNS hostname and/or `GeoIP` country code.
     pub fn enrich(&mut self, addr: &str) -> String {
         let mut result = addr.to_string();
         if self.dns

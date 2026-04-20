@@ -648,6 +648,8 @@ fn serialize_system_time<S: serde::Serializer>(
 }
 
 /// Serialize `Option<SystemTime>` as epoch string or null.
+/// Serde's `serialize_with` requires `&Option<T>` signature for optional fields.
+#[allow(clippy::ref_option)]
 pub fn serialize_opt_timestamp<S: serde::Serializer>(
     ts: &Option<SystemTime>,
     serializer: S,

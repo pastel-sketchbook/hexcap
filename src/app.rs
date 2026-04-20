@@ -228,7 +228,7 @@ pub struct App {
     pub agent_name: Option<String>,
     /// Pending commands from agent → TUI.
     pub agent_commands: crate::agent::AgentCommands,
-    /// Set to Some(preset_index) when user picks an agent; main loop consumes it.
+    /// Set to `Some(preset_index)` when user picks an agent; main loop consumes it.
     pub pending_agent_spawn: Option<usize>,
 
     // -- Go to packet --
