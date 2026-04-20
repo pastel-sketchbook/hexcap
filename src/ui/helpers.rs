@@ -9,6 +9,32 @@ pub const MIN_TERM_WIDTH: u16 = 60;
 pub const MIN_TERM_HEIGHT: u16 = 10;
 /// Default popup overlay width (used by help, pickers, etc.).
 pub const POPUP_WIDTH: u16 = 66;
+/// Maximum popup height relative to terminal.
+pub const POPUP_MAX_HEIGHT: u16 = 40;
+/// Popup margin from terminal edges.
+pub const POPUP_MARGIN: u16 = 4;
+/// Vertical padding inside popups (borders + title).
+pub const POPUP_CHROME: u16 = 3;
+
+// Overlay-specific widths.
+/// Expert information overlay width.
+pub const EXPERT_POPUP_WIDTH: u16 = 80;
+/// Packet diff overlay width.
+pub const DIFF_POPUP_WIDTH: u16 = 72;
+/// Capture statistics summary overlay width.
+pub const STATS_POPUP_WIDTH: u16 = 56;
+/// Capture statistics summary overlay height.
+pub const STATS_POPUP_HEIGHT: u16 = 24;
+
+// Flow graph layout constants.
+/// Width of each endpoint label column in the flow sequence diagram.
+pub const FLOW_COL_WIDTH: usize = 22;
+/// Width of the center arrow column in the flow sequence diagram.
+pub const FLOW_CENTER_WIDTH: usize = 26;
+/// Maximum endpoint label length before truncation.
+pub const FLOW_MAX_LABEL: usize = 22;
+/// Flow graph popup width.
+pub const FLOW_POPUP_WIDTH: u16 = 74;
 
 /// Render a centered size warning if terminal is too small. Returns true if too small.
 pub fn render_size_guard(frame: &mut Frame, theme: &Theme) -> bool {

@@ -48,9 +48,9 @@ pub fn draw_help(frame: &mut Frame, theme: &Theme) {
     let area = frame.area();
 
     // Size the popup: width fits longest line, height fits all bindings + border.
-    let popup_w = super::helpers::POPUP_WIDTH.min(area.width.saturating_sub(4));
+    let popup_w = super::helpers::POPUP_WIDTH.min(area.width.saturating_sub(super::helpers::POPUP_MARGIN));
     #[allow(clippy::cast_possible_truncation)]
-    let popup_h = (BINDINGS.len() as u16 + 3).min(area.height.saturating_sub(2));
+    let popup_h = (BINDINGS.len() as u16 + super::helpers::POPUP_CHROME).min(area.height.saturating_sub(2));
     let x = area.x + (area.width.saturating_sub(popup_w)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_h)) / 2;
     let popup = Rect::new(x, y, popup_w, popup_h);

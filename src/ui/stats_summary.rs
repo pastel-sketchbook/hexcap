@@ -6,13 +6,14 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use crate::app::App;
 use crate::packet::{FlowKey, Protocol};
 use crate::theme::Theme;
+use crate::ui::helpers::{POPUP_MARGIN, STATS_POPUP_HEIGHT, STATS_POPUP_WIDTH};
 
 /// Render a centered capture statistics summary overlay.
 pub fn draw_stats_summary(frame: &mut Frame, app: &App, theme: &Theme) {
     let area = frame.area();
 
-    let popup_w = 56.min(area.width.saturating_sub(4));
-    let popup_h = 24u16.min(area.height.saturating_sub(2));
+    let popup_w = STATS_POPUP_WIDTH.min(area.width.saturating_sub(POPUP_MARGIN));
+    let popup_h = STATS_POPUP_HEIGHT.min(area.height.saturating_sub(2));
     let x = area.x + (area.width.saturating_sub(popup_w)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_h)) / 2;
     let popup = Rect::new(x, y, popup_w, popup_h);

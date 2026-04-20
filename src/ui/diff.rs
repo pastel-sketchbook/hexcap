@@ -3,6 +3,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::app::App;
 use crate::theme::Theme;
+use crate::ui::helpers::{DIFF_POPUP_WIDTH, POPUP_CHROME, POPUP_MARGIN, POPUP_MAX_HEIGHT};
 
 /// Render a hex diff overlay comparing two packets byte-by-byte.
 pub fn draw_diff(frame: &mut Frame, app: &App, theme: &Theme) {
@@ -14,8 +15,8 @@ pub fn draw_diff(frame: &mut Frame, app: &App, theme: &Theme) {
     };
 
     let area = frame.area();
-    let popup_w = 72.min(area.width.saturating_sub(4));
-    let popup_h = area.height.saturating_sub(4).min(40);
+    let popup_w = DIFF_POPUP_WIDTH.min(area.width.saturating_sub(POPUP_MARGIN));
+    let popup_h = area.height.saturating_sub(POPUP_MARGIN).min(POPUP_MAX_HEIGHT);
     let x = area.x + (area.width.saturating_sub(popup_w)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_h)) / 2;
     let popup = Rect::new(x, y, popup_w, popup_h);
@@ -33,7 +34,7 @@ pub fn draw_diff(frame: &mut Frame, app: &App, theme: &Theme) {
     let offset_style = Style::default().fg(theme.hex_offset);
 
     let max_len = pkt_a.data.len().max(pkt_b.data.len());
-    let content_h = popup_h.saturating_sub(3) as usize; // border + title + bottom border
+    let content_h = popup_h.saturating_sub(POPUP_CHROME) as usize;
 
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(vec![

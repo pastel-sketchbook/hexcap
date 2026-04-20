@@ -4,6 +4,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use crate::app::App;
 use crate::packet::FlowKey;
 use crate::theme::Theme;
+use crate::ui::helpers::{FLOW_CENTER_WIDTH, FLOW_COL_WIDTH, FLOW_MAX_LABEL, FLOW_POPUP_WIDTH, POPUP_CHROME, POPUP_MARGIN};
 
 /// Render a sequence diagram overlay for the currently selected flow.
 #[allow(clippy::cast_possible_truncation)]
@@ -31,10 +32,8 @@ pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
     let left = &flow.src;
     let right = &flow.dst;
 
-    // Truncate endpoint labels.
-    let max_label = 22;
-    let left_label = truncate(left, max_label);
-    let right_label = truncate(right, max_label);
+    let left_label = truncate(left, FLOW_MAX_LABEL);
+    let right_label = truncate(right, FLOW_MAX_LABEL);
 
     let mut lines: Vec<Line> = Vec::new();
     let bold = Style::default()
@@ -43,18 +42,21 @@ pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
     let normal = Style::default().fg(theme.fg);
     let muted = Style::default().fg(theme.muted);
 
-    // Column header with endpoint names.
-    let col_width = 24;
+    // Layout: left-pipe column | center arrow column | right-pipe column.
+    // The center column has a fixed width so the vertical pipes stay aligned.
+    let col_width = FLOW_COL_WIDTH;
+    let center_width = FLOW_CENTER_WIDTH;
+
     lines.push(Line::from(vec![
         Span::styled(format!("{left_label:>col_width$}"), bold),
-        Span::styled("          ", normal),
+        Span::styled(format!("{:^center_width$}", ""), normal),
         Span::styled(format!("{right_label:<col_width$}"), bold),
     ]));
 
     // Vertical lines header.
     lines.push(Line::from(vec![
         Span::styled(format!("{:>col_width$}", "│"), muted),
-        Span::styled("          ", normal),
+        Span::styled(format!("{:^center_width$}", ""), normal),
         Span::styled(format!("{:<col_width$}", "│"), muted),
     ]));
 
@@ -73,10 +75,9 @@ pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
         // Build the info label: protocol + length + optional flags.
         let info = build_info_label(pkt);
 
-        let arrow_width = 8;
         let arrow_line = if is_left_to_right {
             let arrow = format!("──{info}──>");
-            let padded = format!("{arrow:^arrow_width$}");
+            let padded = fit_center(&arrow, center_width);
             Line::from(vec![
                 Span::styled(format!("{:>col_width$}", "│"), muted),
                 Span::styled(padded, Style::default().fg(theme.accent)),
@@ -84,7 +85,7 @@ pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
             ])
         } else {
             let arrow = format!("<──{info}──");
-            let padded = format!("{arrow:^arrow_width$}");
+            let padded = fit_center(&arrow, center_width);
             Line::from(vec![
                 Span::styled(format!("{:>col_width$}", "│"), muted),
                 Span::styled(padded, Style::default().fg(theme.tag)),
@@ -101,8 +102,8 @@ pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
         )));
     }
 
-    let popup_w = 68u16.min(area.width.saturating_sub(4));
-    let popup_h = (lines.len() as u16 + 3).min(area.height.saturating_sub(2));
+    let popup_w = FLOW_POPUP_WIDTH.min(area.width.saturating_sub(POPUP_MARGIN));
+    let popup_h = (lines.len() as u16 + POPUP_CHROME).min(area.height.saturating_sub(2));
     let x = area.x + (area.width.saturating_sub(popup_w)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_h)) / 2;
     let popup = Rect::new(x, y, popup_w, popup_h);
@@ -157,6 +158,19 @@ fn truncate(s: &str, max: usize) -> String {
         s.to_string()
     } else {
         format!("{}…", &s[..max - 1])
+    }
+}
+
+/// Fit a string into exactly `width` display chars: center-pad if shorter, truncate if longer.
+fn fit_center(s: &str, width: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count >= width {
+        let truncated: String = s.chars().take(width).collect();
+        truncated
+    } else {
+        let left_pad = (width - char_count) / 2;
+        let right_pad = width - char_count - left_pad;
+        format!("{}{s}{}", " ".repeat(left_pad), " ".repeat(right_pad))
     }
 }
 

@@ -4,13 +4,14 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use crate::app::App;
 use crate::expert;
 use crate::theme::Theme;
+use crate::ui::helpers::{EXPERT_POPUP_WIDTH, POPUP_MARGIN, POPUP_MAX_HEIGHT};
 
 /// Render the expert information overlay — shows all packets with expert items.
 pub fn draw_expert(frame: &mut Frame, app: &App, theme: &Theme) {
     let area = frame.area();
 
-    let popup_w = 80.min(area.width.saturating_sub(4));
-    let popup_h = (area.height - 4).min(40);
+    let popup_w = EXPERT_POPUP_WIDTH.min(area.width.saturating_sub(POPUP_MARGIN));
+    let popup_h = (area.height.saturating_sub(POPUP_MARGIN)).min(POPUP_MAX_HEIGHT);
     let x = area.x + (area.width.saturating_sub(popup_w)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_h)) / 2;
     let popup = Rect::new(x, y, popup_w, popup_h);
