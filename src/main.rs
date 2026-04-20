@@ -1,6 +1,7 @@
 mod app;
 mod capture;
 mod config;
+mod export;
 mod hex;
 mod packet;
 mod process;
@@ -42,6 +43,10 @@ struct Cli {
     /// Filter packets by process name or PID
     #[arg(short, long)]
     process: Option<String>,
+
+    /// Write captured packets to a pcap file on exit or when pressing 'w'
+    #[arg(short, long)]
+    write: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -73,7 +78,11 @@ fn main() -> Result<()> {
         None
     };
 
-    let app = Arc::new(Mutex::new(App::new(cli.max_packets, process_filter)));
+    let app = Arc::new(Mutex::new(App::new(
+        cli.max_packets,
+        process_filter,
+        cli.write.map(std::path::PathBuf::from),
+    )));
     let capture = CaptureHandle::start(
         cli.interface.as_deref(),
         cli.filter.as_deref(),
@@ -103,6 +112,9 @@ fn run_loop(
         {
             // Mutex poisoning means the capture thread panicked — unrecoverable.
             let mut app = app.lock().expect("app mutex poisoned");
+
+            // Clear expired status messages.
+            app.tick_status();
 
             // Refresh process ports every ~5s (100 × 50ms).
             refresh_counter += 1;
@@ -170,6 +182,10 @@ fn run_loop(
                         }
                     }
                     KeyCode::Char('P') => app.clear_process_filter(),
+                    KeyCode::Char('w') => {
+                        let msg = app.export_packets();
+                        app.set_status(msg);
+                    }
                     _ => {}
                 },
                 View::Detail => match key.code {
@@ -177,6 +193,10 @@ fn run_loop(
                     KeyCode::Char('j') | KeyCode::Down => app.scroll_down(),
                     KeyCode::Char('k') | KeyCode::Up => app.scroll_up(),
                     KeyCode::Char('t') => app.next_theme(),
+                    KeyCode::Char('w') => {
+                        let msg = app.export_packets();
+                        app.set_status(msg);
+                    }
                     _ => {}
                 },
             }

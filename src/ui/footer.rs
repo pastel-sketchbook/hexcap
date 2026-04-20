@@ -1,6 +1,7 @@
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::text::Line;
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use crate::app::{App, View};
@@ -31,6 +32,9 @@ pub fn draw_footer(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
             key_badge("p", theme),
             muted_span(" Process ", theme),
             sep.clone(),
+            key_badge("w", theme),
+            muted_span(" Export ", theme),
+            sep.clone(),
             key_badge("t", theme),
             muted_span(" Theme ", theme),
         ],
@@ -40,6 +44,9 @@ pub fn draw_footer(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
             sep.clone(),
             key_badge("j/k", theme),
             muted_span(" Scroll ", theme),
+            sep.clone(),
+            key_badge("w", theme),
+            muted_span(" Export ", theme),
             sep.clone(),
             key_badge("t", theme),
             muted_span(" Theme ", theme),
@@ -51,6 +58,15 @@ pub fn draw_footer(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     let theme_name = app.theme().name;
     let version = env!("CARGO_PKG_VERSION");
     let mut right_spans = vec![];
+    if let Some((ref msg, _)) = app.status_message {
+        right_spans.push(Span::styled(
+            format!("{msg} "),
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ));
+        right_spans.push(muted_span("│ ", theme));
+    }
     if let Some(ref pf) = app.process_filter {
         right_spans.push(muted_span(&format!("{} ", pf.name), theme));
         right_spans.push(muted_span("│ ", theme));

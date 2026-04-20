@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fmt;
+use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::config;
 use crate::packet::{CapturedPacket, Protocol};
@@ -89,6 +91,12 @@ pub struct App {
     // -- Process filter --
     pub process_filter: Option<ProcessFilter>,
     pub process_picker: Option<ProcessPicker>,
+
+    // -- Export --
+    pub export_path: Option<PathBuf>,
+
+    // -- Status message (auto-clears after a few seconds) --
+    pub status_message: Option<(String, Instant)>,
 }
 
 /// Active process filter state.
@@ -109,7 +117,11 @@ pub struct ProcessPicker {
 }
 
 impl App {
-    pub fn new(max_packets: usize, process_filter: Option<ProcessFilter>) -> Self {
+    pub fn new(
+        max_packets: usize,
+        process_filter: Option<ProcessFilter>,
+        export_path: Option<PathBuf>,
+    ) -> Self {
         // Load persisted theme preference first, then fall back to Ghostty detection.
         let prefs = config::load_preferences();
         let theme_index = if prefs.theme != theme::THEMES[0].name || config::has_preferences_file()
@@ -134,6 +146,8 @@ impl App {
             total_bytes: 0,
             process_filter,
             process_picker: None,
+            export_path,
+            status_message: None,
         }
     }
 
@@ -430,6 +444,37 @@ impl App {
     }
 
     // -- Stats ---------------------------------------------------------------
+
+    /// Set a temporary status message (displayed for ~3 seconds).
+    pub fn set_status(&mut self, msg: String) {
+        self.status_message = Some((msg, Instant::now()));
+    }
+
+    /// Clear expired status messages (older than 3 seconds).
+    pub fn tick_status(&mut self) {
+        if let Some((_, at)) = &self.status_message
+            && at.elapsed().as_secs() >= 3
+        {
+            self.status_message = None;
+        }
+    }
+
+    /// Export visible (filtered) packets to the configured pcap path.
+    /// Returns a status message describing the result.
+    pub fn export_packets(&self) -> String {
+        let Some(ref path) = self.export_path else {
+            return "No export path set (use --write <file>)".into();
+        };
+        let filtered = self.filtered_indices();
+        let packets: Vec<&crate::packet::CapturedPacket> = filtered
+            .iter()
+            .filter_map(|&i| self.packets.get(i))
+            .collect();
+        match crate::export::write_pcap(path.as_path(), &packets) {
+            Ok(n) => format!("Exported {n} packets to {}", path.display()),
+            Err(e) => format!("Export failed: {e}"),
+        }
+    }
 
     pub fn proto_counts(&self) -> ProtoCounts {
         let mut counts = ProtoCounts::default();

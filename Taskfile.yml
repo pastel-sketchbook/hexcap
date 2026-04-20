@@ -73,3 +73,40 @@ tasks:
     desc: "Remove build artifacts"
     cmds:
       - cargo clean
+
+  # --- Version Management (scripts/version.sh is the source of truth) ---
+  version:show:
+    desc: "Print the current version"
+    cmds:
+      - ./scripts/version.sh show
+
+  version:patch:
+    desc: "Bump patch version and sync Cargo.toml"
+    cmds:
+      - ./scripts/version.sh patch
+
+  version:minor:
+    desc: "Bump minor version and sync Cargo.toml"
+    cmds:
+      - ./scripts/version.sh minor
+
+  version:major:
+    desc: "Bump major version and sync Cargo.toml"
+    cmds:
+      - ./scripts/version.sh major
+
+  version:sync:
+    desc: "Re-sync Cargo.toml to VERSION file"
+    cmds:
+      - ./scripts/version.sh sync
+
+  version:tag:
+    desc: "Create a git tag from the current VERSION file"
+    cmds:
+      - ./scripts/version.sh tag
+
+  # --- Release ---
+  release:
+    desc: "Bump patch, commit, tag, and push"
+    cmds:
+      - ./scripts/version.sh release
