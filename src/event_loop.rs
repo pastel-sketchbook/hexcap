@@ -453,9 +453,9 @@ pub fn run_loop(
                                 _ => false,
                             };
                             let split_result = if use_ghostty {
-                                agent::open_ghostty_split(&agent_bin, &sock_path)
+                                agent::open_ghostty_split(&agent_bin, &sock_path, preset.initial_prompt)
                             } else {
-                                agent::open_tmux_split(&agent_bin, &sock_path)
+                                agent::open_tmux_split(&agent_bin, &sock_path, preset.initial_prompt)
                             };
                             let mode_name = if use_ghostty {
                                 "Ghostty"
@@ -472,7 +472,7 @@ pub fn run_loop(
                                     a.chat_messages.push(crate::app::ChatMessage {
                                         sender: "system".into(),
                                         text: format!(
-                                            "{} opened in {} split. Socket: {sock_path}",
+                                            "{} opened in {} split — waiting for ACK",
                                             preset.name, mode_name
                                         ),
                                     });

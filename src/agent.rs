@@ -69,6 +69,9 @@ pub struct AgentPreset {
     pub binary: &'static str,
     pub description: &'static str,
     pub spawn_mode: SpawnMode,
+    /// Optional initial prompt passed to the agent on spawn (e.g. `--prompt`).
+    /// Uses `{socket}` placeholder for the socket path.
+    pub initial_prompt: Option<&'static str>,
 }
 
 /// The 4 supported coding agents.
@@ -79,6 +82,7 @@ pub const AGENT_PRESETS: &[AgentPreset] = &[
         binary: "copilot",
         description: "GitHub Copilot CLI",
         spawn_mode: SpawnMode::Chat,
+        initial_prompt: None,
     },
     AgentPreset {
         name: "OpenCode",
@@ -86,6 +90,16 @@ pub const AGENT_PRESETS: &[AgentPreset] = &[
         binary: "opencode",
         description: "OpenCode coding agent",
         spawn_mode: SpawnMode::Split,
+        initial_prompt: Some(
+            "You are connected to a live hexcap packet capture session. \
+             The hexcap Unix domain socket is at {socket}. \
+             First: connect to the socket using socat or nc -U, \
+             register with @@HEXCAP:{\"action\":\"register\",\"name\":\"opencode\",\"capabilities\":[\"analyze\",\"filter\"]}, \
+             then send @@HEXCAP:{\"action\":\"chat\",\"message\":\"ACK\"} to confirm. \
+             Keep this session alive — the user will send questions and commands \
+             through hexcap chat. Respond via @@HEXCAP:{\"action\":\"chat\",\"message\":\"...\"} commands. \
+             You can query hexcap for packets, flows, stats, and streams at any time."
+        ),
     },
     AgentPreset {
         name: "Gemini",
@@ -93,6 +107,7 @@ pub const AGENT_PRESETS: &[AgentPreset] = &[
         binary: "gemini",
         description: "Google Gemini CLI",
         spawn_mode: SpawnMode::Chat,
+        initial_prompt: None,
     },
     AgentPreset {
         name: "Amp",
@@ -100,6 +115,7 @@ pub const AGENT_PRESETS: &[AgentPreset] = &[
         binary: "amp",
         description: "Amp coding agent",
         spawn_mode: SpawnMode::Ghostty,
+        initial_prompt: None,
     },
 ];
 
@@ -146,7 +162,7 @@ pub fn open_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
             Err(e) => Err(anyhow::anyhow!("tmux split failed: {e}")),
         }
     } else if crate::ui::helpers::is_ghostty() {
-        open_ghostty_split(agent_bin, socket_path)
+        open_ghostty_split(agent_bin, socket_path, None)
     } else {
         Ok(false)
     }
@@ -155,13 +171,20 @@ pub fn open_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
 /// Open an agent in a tmux split pane (right side, 60%).
 ///
 /// Returns `Ok(true)` if tmux is available and the split was opened.
-pub fn open_tmux_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
+pub fn open_tmux_split(agent_bin: &str, socket_path: &str, prompt: Option<&str>) -> Result<bool> {
     if !is_tmux() {
         return Ok(false);
     }
+    let prompt_arg = prompt
+        .map(|p| {
+            let expanded = p.replace("{socket}", socket_path);
+            // Use double quotes so we don't break the outer single-quote wrapping.
+            format!(r#" --prompt "{}""#, expanded.replace('"', r#"\""#))
+        })
+        .unwrap_or_default();
     // When running under sudo, drop back to the original user so the tmux
     // pane runs in their session with their PATH (where opencode lives).
-    let inner = format!("HEXCAP_SOCKET={socket_path} exec {agent_bin}");
+    let inner = format!("HEXCAP_SOCKET={socket_path} exec {agent_bin}{prompt_arg}");
     let wrapped = if let Ok(user) = std::env::var("SUDO_USER") {
         format!("sudo -u {user} sh -c '{inner}'")
     } else {
@@ -196,14 +219,20 @@ pub fn is_tmux() -> bool {
 ///
 /// Uses `/bin/zsh -l -c` so the agent gets the user's PATH.
 /// Returns `Ok(true)` if Ghostty is detected and the split was opened.
-pub fn open_ghostty_split(agent_bin: &str, socket_path: &str) -> Result<bool> {
+pub fn open_ghostty_split(agent_bin: &str, socket_path: &str, prompt: Option<&str>) -> Result<bool> {
     if !crate::ui::helpers::is_ghostty() {
         return Ok(false);
     }
+    let prompt_arg = prompt
+        .map(|p| {
+            let expanded = p.replace("{socket}", socket_path);
+            format!(" --prompt \\\"{}\\\"", expanded.replace('"', "\\\\\\\""))
+        })
+        .unwrap_or_default();
     let script = format!(
         r#"tell application "Ghostty"
     set cfg to new surface configuration
-    set command of cfg to "/bin/zsh -l -c 'export HEXCAP_SOCKET={socket_path}; exec {agent_bin}'"
+    set command of cfg to "/bin/zsh -l -c 'export HEXCAP_SOCKET={socket_path}; exec {agent_bin}{prompt_arg}'"
     set t to focused terminal of selected tab of front window
     split t direction right with configuration cfg
 end tell"#
