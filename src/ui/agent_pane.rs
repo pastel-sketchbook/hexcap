@@ -30,7 +30,8 @@ pub fn draw_agent_pane(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) 
         .map(|s| Line::from(Span::styled(s.as_str(), Style::default().fg(theme.fg))))
         .collect();
 
-    let title = format!(" Agent Output ({total} lines) ");
+    let agent_label = app.agent_name.as_deref().unwrap_or("Agent");
+    let title = format!(" {agent_label} Output ({total} lines) ");
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme.accent))

@@ -234,12 +234,18 @@ fn main() -> Result<()> {
 
     // ── Agent pipe / socket setup ──────────────────────────────────────
     let agent_output = app.lock().expect("app mutex poisoned").agent_output.clone();
+    let agent_commands = app
+        .lock()
+        .expect("app mutex poisoned")
+        .agent_commands
+        .clone();
 
     let mut agent_pipe = if let Some(ref cmd) = cli.pipe {
-        match agent::AgentPipe::spawn(cmd, agent_output.clone()) {
+        match agent::AgentPipe::spawn(cmd, agent_output.clone(), agent_commands.clone()) {
             Ok(pipe) => {
                 if let Ok(mut a) = app.lock() {
                     a.show_agent_pane = true;
+                    a.agent_name = Some(cmd.clone());
                     a.set_status(format!("Agent pipe: {cmd}"));
                 }
                 Some(pipe)
@@ -395,6 +401,8 @@ fn main() -> Result<()> {
         geoip_db.as_ref(),
         &mut agent_pipe,
         &socket_server,
+        &agent_output,
+        &agent_commands,
     );
 
     disable_raw_mode()?;
@@ -405,6 +413,7 @@ fn main() -> Result<()> {
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &Arc<Mutex<App>>,
@@ -413,6 +422,8 @@ fn run_loop(
     geoip_db: Option<&Arc<geoip::GeoDb>>,
     agent_pipe: &mut Option<agent::AgentPipe>,
     socket_server: &Option<agent::SocketServer>,
+    agent_output: &agent::AgentOutput,
+    agent_commands: &agent::AgentCommands,
 ) -> Result<()> {
     let mut refresh_counter: u32 = 0;
     let mut dns_counter: u32 = 0;
@@ -436,6 +447,47 @@ fn run_loop(
                 Err(e) => {
                     let mut a = app.lock().expect("app mutex poisoned");
                     a.set_status(format!("Switch failed: {e}"));
+                }
+            }
+        }
+
+        // Check for pending agent picker selection → spawn agent.
+        {
+            let mut a = app.lock().expect("app mutex poisoned");
+            if let Some(preset_idx) = a.pending_agent_spawn.take()
+                && let Some(preset) = agent::AGENT_PRESETS.get(preset_idx)
+            {
+                match agent::AgentPipe::spawn(
+                    preset.command,
+                    Arc::clone(agent_output),
+                    Arc::clone(agent_commands),
+                ) {
+                    Ok(pipe) => {
+                        *agent_pipe = Some(pipe);
+                        a.show_agent_pane = true;
+                        a.agent_name = Some(preset.name.to_string());
+                        a.agent_scroll = 0;
+                        a.set_status(format!("Agent: {}", preset.name));
+                    }
+                    Err(e) => {
+                        a.set_status(format!("Agent failed: {e}"));
+                    }
+                }
+            }
+        }
+
+        // Drain and execute agent commands.
+        {
+            let cmds: Vec<agent::AgentCommand> = {
+                let mut q = agent_commands
+                    .lock()
+                    .expect("agent commands mutex poisoned");
+                q.drain(..).collect()
+            };
+            if !cmds.is_empty() {
+                let mut a = app.lock().expect("app mutex poisoned");
+                for cmd in cmds {
+                    execute_agent_command(&mut a, cmd);
                 }
             }
         }
@@ -532,6 +584,100 @@ fn run_loop(
                 _ => {}
             }
         }
+
+        /// Execute a single command received from an agent via the `@@HEXCAP:` protocol.
+        fn execute_agent_command(app: &mut App, cmd: agent::AgentCommand) {
+            use agent::AgentCommand;
+            match cmd {
+                AgentCommand::Filter { value } => {
+                    if value.is_empty() {
+                        app.display_filter.clear();
+                        app.set_status("Agent: filter cleared".into());
+                    } else {
+                        app.display_filter = value.clone();
+                        app.set_status(format!("Agent: filter \"{value}\""));
+                    }
+                }
+                AgentCommand::Goto { id } => {
+                    // Find the packet index with this ID.
+                    if let Some(idx) = app.packets.iter().position(|p| p.id == id) {
+                        app.selected = idx;
+                        app.set_status(format!("Agent: goto #{id}"));
+                    } else {
+                        app.set_status(format!("Agent: packet #{id} not found"));
+                    }
+                }
+                AgentCommand::Pause => {
+                    app.paused = true;
+                    app.set_status("Agent: paused".into());
+                }
+                AgentCommand::Resume => {
+                    app.paused = false;
+                    app.set_status("Agent: resumed".into());
+                }
+                AgentCommand::Export { file } => {
+                    if let Some(path) = file {
+                        app.export_path = Some(std::path::PathBuf::from(path));
+                    }
+                    let msg = app.export_packets();
+                    app.set_status(format!("Agent: {msg}"));
+                }
+                AgentCommand::Dns => {
+                    app.dns_enabled = !app.dns_enabled;
+                    let state = if app.dns_enabled { "on" } else { "off" };
+                    app.set_status(format!("Agent: DNS {state}"));
+                }
+                AgentCommand::Status { message } => {
+                    app.set_status(message);
+                }
+                AgentCommand::Bookmark { id } => {
+                    if !app.bookmarks.remove(&id) {
+                        app.bookmarks.insert(id);
+                        app.set_status(format!("Agent: bookmarked #{id}"));
+                    } else {
+                        app.set_status(format!("Agent: unbookmarked #{id}"));
+                    }
+                }
+                AgentCommand::Annotate { id, text } => {
+                    if text.is_empty() {
+                        app.annotations.remove(&id);
+                    } else {
+                        app.annotations.insert(id, text.clone());
+                    }
+                    app.set_status(format!("Agent: annotated #{id}"));
+                }
+                AgentCommand::Flows => {
+                    app.open_flows();
+                    app.set_status("Agent: flows view".into());
+                }
+                AgentCommand::Clear => {
+                    app.clear();
+                    app.set_status("Agent: cleared".into());
+                }
+                AgentCommand::View { target } => {
+                    match target.as_str() {
+                        "list" => app.view = View::List,
+                        "detail" => app.open_detail(),
+                        "flows" => app.open_flows(),
+                        "stream" => app.open_stream(),
+                        other => {
+                            app.set_status(format!("Agent: unknown view \"{other}\""));
+                            return;
+                        }
+                    }
+                    app.set_status(format!("Agent: view {target}"));
+                }
+                AgentCommand::MarkDiff { id } => {
+                    if let Some(idx) = app.packets.iter().position(|p| p.id == id) {
+                        app.selected = idx;
+                        app.mark_or_diff();
+                        app.set_status(format!("Agent: mark diff #{id}"));
+                    } else {
+                        app.set_status(format!("Agent: packet #{id} not found"));
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -564,6 +710,18 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             KeyCode::Enter => app.iface_picker_select(),
             KeyCode::Down | KeyCode::Char('j') => app.iface_picker_next(),
             KeyCode::Up | KeyCode::Char('k') => app.iface_picker_prev(),
+            _ => {}
+        }
+        return false;
+    }
+
+    // Agent picker overlay — intercept keys first.
+    if app.agent_picker.is_some() {
+        match code {
+            KeyCode::Esc => app.close_agent_picker(),
+            KeyCode::Enter => app.agent_picker_select(),
+            KeyCode::Down | KeyCode::Char('j') => app.agent_picker_next(),
+            KeyCode::Up | KeyCode::Char('k') => app.agent_picker_prev(),
             _ => {}
         }
         return false;
@@ -776,7 +934,13 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('T') => app.cycle_time_format(),
         KeyCode::Char('R') => app.toggle_time_reference(),
         KeyCode::Char(':') => app.start_goto(),
-        KeyCode::Char('A') => app.show_agent_pane = !app.show_agent_pane,
+        KeyCode::Char('A') => {
+            if app.agent_name.is_some() {
+                app.show_agent_pane = !app.show_agent_pane;
+            } else {
+                app.open_agent_picker();
+            }
+        }
         KeyCode::Char('J') if app.show_agent_pane => {
             app.agent_scroll = app.agent_scroll.saturating_sub(1);
         }

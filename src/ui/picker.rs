@@ -160,3 +160,58 @@ pub fn draw_interface_picker(frame: &mut Frame, app: &App, theme: &Theme) {
     let mut state = ListState::default().with_selected(Some(picker.selected));
     frame.render_stateful_widget(list, popup_area, &mut state);
 }
+
+/// Render the agent picker overlay (centered popup).
+pub fn draw_agent_picker(frame: &mut Frame, app: &App, theme: &Theme) {
+    let Some(picker) = &app.agent_picker else {
+        return;
+    };
+
+    let presets = crate::agent::AGENT_PRESETS;
+    let area = frame.area();
+    let popup_width = 40_u16.min(area.width.saturating_sub(4));
+    #[allow(clippy::cast_possible_truncation)]
+    let popup_height = (presets.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let items: Vec<ListItem> = presets
+        .iter()
+        .map(|preset| {
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    format!(" {:<12}", preset.name),
+                    Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(preset.description, Style::default().fg(theme.muted)),
+            ]))
+        })
+        .collect();
+
+    let title = " Select Agent ";
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.accent))
+                .title(title)
+                .title_style(
+                    Style::default()
+                        .fg(theme.accent)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .padding(Padding::horizontal(1)),
+        )
+        .highlight_style(
+            Style::default()
+                .bg(theme.highlight_bg)
+                .fg(theme.highlight_fg)
+                .add_modifier(Modifier::BOLD),
+        );
+
+    let mut state = ListState::default().with_selected(Some(picker.selected));
+    frame.render_stateful_widget(list, popup_area, &mut state);
+}

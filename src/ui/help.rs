@@ -40,7 +40,7 @@ const BINDINGS: &[(&str, &str)] = &[
     ("a", "Annotate packet"),
     ("\\", "Display filter (tcp, port:443, !arp)"),
     (":", "Go to packet by number"),
-    ("A", "Toggle agent output pane"),
+    ("A", "Agent picker / toggle pane"),
     ("J/K", "Scroll agent pane down/up"),
     ("?", "Toggle this help"),
 ];

@@ -222,6 +222,14 @@ pub struct App {
     pub agent_output: crate::agent::AgentOutput,
     /// Scroll offset within the agent pane.
     pub agent_scroll: usize,
+    /// Agent picker overlay.
+    pub agent_picker: Option<AgentPicker>,
+    /// The command that was used to spawn the current agent (for display).
+    pub agent_name: Option<String>,
+    /// Pending commands from agent → TUI.
+    pub agent_commands: crate::agent::AgentCommands,
+    /// Set to Some(preset_index) when user picks an agent; main loop consumes it.
+    pub pending_agent_spawn: Option<usize>,
 
     // -- Go to packet --
     pub goto_buf: String,
@@ -273,6 +281,12 @@ pub struct ProcessPicker {
 #[derive(Debug, Clone)]
 pub struct InterfacePicker {
     pub interfaces: Vec<crate::capture::InterfaceInfo>,
+    pub selected: usize,
+}
+
+/// Interactive agent picker overlay.
+#[derive(Debug, Clone)]
+pub struct AgentPicker {
     pub selected: usize,
 }
 
@@ -359,6 +373,10 @@ impl App {
             show_agent_pane: false,
             agent_output: crate::agent::new_output(),
             agent_scroll: 0,
+            agent_picker: None,
+            agent_name: None,
+            agent_commands: crate::agent::new_commands(),
+            pending_agent_spawn: None,
             goto_buf: String::new(),
         }
     }
@@ -946,6 +964,41 @@ impl App {
         };
         self.pending_interface = Some(name);
         self.interface_picker = None;
+    }
+
+    // -- Agent picker --------------------------------------------------------
+
+    pub fn open_agent_picker(&mut self) {
+        self.agent_picker = Some(AgentPicker { selected: 0 });
+    }
+
+    pub fn close_agent_picker(&mut self) {
+        self.agent_picker = None;
+    }
+
+    pub fn agent_picker_next(&mut self) {
+        if let Some(picker) = &mut self.agent_picker
+            && picker.selected + 1 < crate::agent::AGENT_PRESETS.len()
+        {
+            picker.selected += 1;
+        }
+    }
+
+    pub fn agent_picker_prev(&mut self) {
+        if let Some(picker) = &mut self.agent_picker
+            && picker.selected > 0
+        {
+            picker.selected -= 1;
+        }
+    }
+
+    /// Select the current agent preset. Sets `pending_agent_spawn` for the main loop.
+    pub fn agent_picker_select(&mut self) {
+        let Some(idx) = self.agent_picker.as_ref().map(|p| p.selected) else {
+            return;
+        };
+        self.agent_picker = None;
+        self.pending_agent_spawn = Some(idx);
     }
 
     // -- Bookmarks -----------------------------------------------------------

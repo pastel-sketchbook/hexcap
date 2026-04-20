@@ -71,6 +71,11 @@ pub fn render(frame: &mut Frame, app: &App) {
         picker::draw_interface_picker(frame, app, theme);
     }
 
+    // Overlay: agent picker popup.
+    if app.agent_picker.is_some() {
+        picker::draw_agent_picker(frame, app, theme);
+    }
+
     // Overlay: help popup.
     if app.show_help {
         help::draw_help(frame, theme);
