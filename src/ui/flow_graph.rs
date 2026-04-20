@@ -72,27 +72,57 @@ pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
         let is_left_to_right =
             pkt.src == *left || (pkt.src != *right && strip_port(&pkt.src) == strip_port(left));
 
-        // Build the info label: protocol + length + optional flags.
-        let info = build_info_label(pkt);
+        let (proto, flags, length) = build_info_parts(pkt);
+        let dir_color = if is_left_to_right { theme.accent } else { theme.tag };
 
-        let arrow_line = if is_left_to_right {
-            let arrow = format!("──{info}──>");
-            let padded = fit_center(&arrow, center_width);
-            Line::from(vec![
-                Span::styled(format!("{:>col_width$}", "│"), muted),
-                Span::styled(padded, Style::default().fg(theme.accent)),
-                Span::styled(format!("{:<col_width$}", "│"), muted),
-            ])
+        // Build multi-colored center spans: arrow + proto + [flags] + len + arrow
+        let mut center_spans: Vec<Span> = Vec::new();
+        if is_left_to_right {
+            center_spans.push(Span::styled("──", muted));
         } else {
-            let arrow = format!("<──{info}──");
-            let padded = fit_center(&arrow, center_width);
-            Line::from(vec![
-                Span::styled(format!("{:>col_width$}", "│"), muted),
-                Span::styled(padded, Style::default().fg(theme.tag)),
-                Span::styled(format!("{:<col_width$}", "│"), muted),
-            ])
+            center_spans.push(Span::styled("<──", muted));
+        }
+        center_spans.push(Span::styled(
+            proto,
+            Style::default().fg(dir_color).add_modifier(Modifier::BOLD),
+        ));
+        if !flags.is_empty() {
+            center_spans.push(Span::styled(
+                format!(" [{flags}]"),
+                Style::default().fg(theme.fg),
+            ));
+        }
+        center_spans.push(Span::styled(
+            format!(" {length}"),
+            Style::default().fg(theme.muted),
+        ));
+        if is_left_to_right {
+            center_spans.push(Span::styled("──>", muted));
+        } else {
+            center_spans.push(Span::styled("──", muted));
+        }
+
+        // Compute total char width of center spans and pad to fixed width.
+        let content_len: usize = center_spans.iter().map(|s| s.content.chars().count()).sum();
+        let (left_pad, right_pad) = if content_len >= center_width {
+            (0, 0)
+        } else {
+            let lp = (center_width - content_len) / 2;
+            (lp, center_width - content_len - lp)
         };
-        lines.push(arrow_line);
+
+        let mut row_spans = Vec::new();
+        row_spans.push(Span::styled(format!("{:>col_width$}", "│"), muted));
+        if left_pad > 0 {
+            row_spans.push(Span::raw(" ".repeat(left_pad)));
+        }
+        row_spans.extend(center_spans);
+        if right_pad > 0 {
+            row_spans.push(Span::raw(" ".repeat(right_pad)));
+        }
+        row_spans.push(Span::styled(format!("{:<col_width$}", "│"), muted));
+
+        lines.push(Line::from(row_spans));
     }
 
     if packets.len() > max_rows {
@@ -123,14 +153,12 @@ pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
     frame.render_widget(paragraph, popup);
 }
 
-fn build_info_label(pkt: &crate::packet::CapturedPacket) -> String {
+/// Split packet info into (protocol, flags, length) for separate coloring.
+fn build_info_parts(pkt: &crate::packet::CapturedPacket) -> (String, String, String) {
     let proto = format!("{}", pkt.protocol);
     let flags = tcp_flag_str(pkt.tcp_flags);
-    if flags.is_empty() {
-        format!("{proto} {}", pkt.length)
-    } else {
-        format!("{proto} [{flags}] {}", pkt.length)
-    }
+    let length = format!("{}", pkt.length);
+    (proto, flags, length)
 }
 
 fn tcp_flag_str(flags: u8) -> String {
@@ -158,19 +186,6 @@ fn truncate(s: &str, max: usize) -> String {
         s.to_string()
     } else {
         format!("{}…", &s[..max - 1])
-    }
-}
-
-/// Fit a string into exactly `width` display chars: center-pad if shorter, truncate if longer.
-fn fit_center(s: &str, width: usize) -> String {
-    let char_count = s.chars().count();
-    if char_count >= width {
-        let truncated: String = s.chars().take(width).collect();
-        truncated
-    } else {
-        let left_pad = (width - char_count) / 2;
-        let right_pad = width - char_count - left_pad;
-        format!("{}{s}{}", " ".repeat(left_pad), " ".repeat(right_pad))
     }
 }
 
