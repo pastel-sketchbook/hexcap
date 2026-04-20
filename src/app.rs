@@ -830,11 +830,20 @@ impl App {
         }
     }
 
-    /// Export visible (filtered) packets to the configured pcap path.
+    /// Export visible (filtered) packets to a pcap file.
+    /// If `--write` was given, uses that path. Otherwise auto-generates a timestamped name.
     /// Returns a status message describing the result.
     pub fn export_packets(&self) -> String {
-        let Some(ref path) = self.export_path else {
-            return "No export path set (use --write <file>)".into();
+        let path = if let Some(ref p) = self.export_path {
+            p.clone()
+        } else {
+            // Auto-generate filename: hexcap_YYYYMMDD_HHMMSS.pcap
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            // Simple timestamp without chrono: use seconds since epoch.
+            PathBuf::from(format!("hexcap_{now}.pcap"))
         };
         let filtered = self.filtered_indices();
         let packets: Vec<&crate::packet::CapturedPacket> = filtered
