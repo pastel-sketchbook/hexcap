@@ -421,13 +421,15 @@ pub fn detect_ghostty_theme() -> Option<usize> {
         Some(rest.to_string())
     })?;
 
-    // Handle `dark:X,light:Y` syntax — extract dark part
+    // Handle `dark:X,light:Y` syntax — pick based on system appearance.
     let theme_name = if theme_value.contains(':') {
+        let prefer_light = is_system_light();
+        let prefix = if prefer_light { "light:" } else { "dark:" };
         theme_value
             .split(',')
             .find_map(|part| {
                 let part = part.trim();
-                part.strip_prefix("dark:").map(|v| v.trim().to_string())
+                part.strip_prefix(prefix).map(|v| v.trim().to_string())
             })
             .unwrap_or(theme_value)
     } else {
@@ -474,6 +476,36 @@ pub fn detect_ghostty_theme() -> Option<usize> {
     }
 
     None
+}
+
+/// Detect whether the system prefers a light colour scheme.
+///
+/// On macOS, checks `defaults read -g AppleInterfaceStyle`; if the command
+/// fails or returns anything other than "Dark", the system is in light mode.
+pub fn is_system_light() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("defaults")
+            .args(["read", "-g", "AppleInterfaceStyle"])
+            .output();
+        match out {
+            Ok(o) if o.status.success() => {
+                let val = String::from_utf8_lossy(&o.stdout);
+                !val.trim().eq_ignore_ascii_case("Dark")
+            }
+            _ => true, // no key means light mode
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// Return the best initial theme index: Ghostty detection first, then
+/// system appearance (Default Light index 8 vs Default Dark index 0).
+pub fn detect_initial_theme() -> usize {
+    detect_ghostty_theme().unwrap_or_else(|| if is_system_light() { 8 } else { 0 })
 }
 
 #[cfg(test)]

@@ -279,7 +279,7 @@ impl App {
         {
             theme::theme_index_by_name(&prefs.theme)
         } else {
-            theme::detect_ghostty_theme().unwrap_or(0)
+            theme::detect_initial_theme()
         };
 
         Self {
