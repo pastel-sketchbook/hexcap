@@ -95,3 +95,67 @@ pub fn draw_process_picker(frame: &mut Frame, app: &App, theme: &Theme) {
     let mut state = ListState::default().with_selected(Some(picker.selected));
     frame.render_stateful_widget(list, chunks[1], &mut state);
 }
+
+/// Render the interface picker overlay (centered popup).
+pub fn draw_interface_picker(frame: &mut Frame, app: &App, theme: &Theme) {
+    let Some(picker) = &app.interface_picker else {
+        return;
+    };
+
+    let area = frame.area();
+    let popup_width = (area.width * 60 / 100).clamp(40, 70);
+    let popup_height = (area.height * 50 / 100).clamp(8, 20);
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let items: Vec<ListItem> = picker
+        .interfaces
+        .iter()
+        .map(|iface| {
+            let addr_str = if iface.addresses.is_empty() {
+                String::from("(no address)")
+            } else {
+                iface.addresses.join(", ")
+            };
+            let active = if iface.name == app.interface_name {
+                " ●"
+            } else {
+                ""
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    format!("{:<12}", iface.name),
+                    Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(addr_str, Style::default().fg(theme.muted)),
+                Span::styled(active, Style::default().fg(theme.accent)),
+            ]))
+        })
+        .collect();
+
+    let title = format!(" Interfaces ({}) ", picker.interfaces.len());
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.accent))
+                .title(title)
+                .title_style(
+                    Style::default()
+                        .fg(theme.accent)
+                        .add_modifier(Modifier::BOLD),
+                ),
+        )
+        .highlight_style(
+            Style::default()
+                .bg(theme.highlight_bg)
+                .fg(theme.highlight_fg)
+                .add_modifier(Modifier::BOLD),
+        );
+
+    let mut state = ListState::default().with_selected(Some(picker.selected));
+    frame.render_stateful_widget(list, popup_area, &mut state);
+}

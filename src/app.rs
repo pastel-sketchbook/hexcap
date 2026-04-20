@@ -109,6 +109,12 @@ pub struct App {
     pub flow_map: HashMap<FlowKey, usize>,
     pub flow_selected: usize,
     pub flow_filter: Option<FlowKey>,
+
+    // -- Interface --
+    pub interface_name: String,
+    pub interface_picker: Option<InterfacePicker>,
+    /// Set to Some(name) when user picks a new interface; main loop consumes it.
+    pub pending_interface: Option<String>,
 }
 
 /// Aggregated info for a single bidirectional flow.
@@ -137,6 +143,13 @@ pub struct ProcessPicker {
     pub filtered: Vec<usize>,
     pub selected: usize,
     pub query: String,
+}
+
+/// Interactive interface picker overlay.
+#[derive(Debug, Clone)]
+pub struct InterfacePicker {
+    pub interfaces: Vec<crate::capture::InterfaceInfo>,
+    pub selected: usize,
 }
 
 impl App {
@@ -178,6 +191,9 @@ impl App {
             flow_map: HashMap::new(),
             flow_selected: 0,
             flow_filter: None,
+            interface_name: String::new(),
+            interface_picker: None,
+            pending_interface: None,
         }
     }
 
@@ -448,6 +464,49 @@ impl App {
     pub fn clear_flow_filter(&mut self) {
         self.flow_filter = None;
         self.clamp_selected();
+    }
+
+    // -- Interface picker ----------------------------------------------------
+
+    pub fn open_interface_picker(&mut self, interfaces: Vec<crate::capture::InterfaceInfo>) {
+        self.interface_picker = Some(InterfacePicker {
+            interfaces,
+            selected: 0,
+        });
+    }
+
+    pub fn close_interface_picker(&mut self) {
+        self.interface_picker = None;
+    }
+
+    pub fn iface_picker_next(&mut self) {
+        if let Some(ref mut picker) = self.interface_picker
+            && picker.selected + 1 < picker.interfaces.len()
+        {
+            picker.selected += 1;
+        }
+    }
+
+    pub fn iface_picker_prev(&mut self) {
+        if let Some(ref mut picker) = self.interface_picker
+            && picker.selected > 0
+        {
+            picker.selected -= 1;
+        }
+    }
+
+    pub fn iface_picker_select(&mut self) {
+        let name = {
+            let Some(picker) = &self.interface_picker else {
+                return;
+            };
+            let Some(iface) = picker.interfaces.get(picker.selected) else {
+                return;
+            };
+            iface.name.clone()
+        };
+        self.pending_interface = Some(name);
+        self.interface_picker = None;
     }
 
     pub fn scroll_down(&mut self) {

@@ -41,6 +41,11 @@ pub fn render(frame: &mut Frame, app: &App) {
     if app.process_picker.is_some() {
         picker::draw_process_picker(frame, app, theme);
     }
+
+    // Overlay: interface picker popup.
+    if app.interface_picker.is_some() {
+        picker::draw_interface_picker(frame, app, theme);
+    }
 }
 
 /// List layout: header | stats | table | search bar? | footer.

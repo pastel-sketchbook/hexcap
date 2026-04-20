@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -10,6 +11,7 @@ use crate::packet;
 
 pub struct CaptureHandle {
     _handle: thread::JoinHandle<()>,
+    stop: Arc<AtomicBool>,
 }
 
 impl CaptureHandle {
@@ -29,6 +31,11 @@ impl CaptureHandle {
                 .context("no default device found")?,
         };
 
+        // Store the active interface name.
+        if let Ok(mut a) = app.lock() {
+            a.interface_name.clone_from(&device.name);
+        }
+
         info!(interface = %device.name, "starting capture");
 
         let mut cap = Capture::from_device(device)
@@ -44,9 +51,15 @@ impl CaptureHandle {
                 .with_context(|| format!("bad BPF filter: {f}"))?;
         }
 
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_clone = Arc::clone(&stop);
+
         let handle = thread::spawn(move || {
             let mut counter: u64 = 0;
             loop {
+                if stop_clone.load(Ordering::Relaxed) {
+                    break;
+                }
                 match cap.next_packet() {
                     Ok(pkt) => {
                         counter += 1;
@@ -64,6 +77,45 @@ impl CaptureHandle {
             }
         });
 
-        Ok(Self { _handle: handle })
+        Ok(Self {
+            _handle: handle,
+            stop,
+        })
     }
+
+    /// Signal the capture thread to stop.
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
+
+impl Drop for CaptureHandle {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// List available network interfaces.
+pub fn list_interfaces() -> Result<Vec<InterfaceInfo>> {
+    let devices = Device::list().context("failed to list devices")?;
+    Ok(devices
+        .into_iter()
+        .map(|d| {
+            let addrs: Vec<String> = d.addresses.iter().map(|a| format!("{}", a.addr)).collect();
+            InterfaceInfo {
+                name: d.name,
+                description: d.desc.unwrap_or_default(),
+                addresses: addrs,
+            }
+        })
+        .collect())
+}
+
+/// Info about a network interface for display in the picker.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct InterfaceInfo {
+    pub name: String,
+    pub description: String,
+    pub addresses: Vec<String>,
 }

@@ -84,18 +84,20 @@ fn main() -> Result<()> {
         process_filter,
         cli.write.map(std::path::PathBuf::from),
     )));
-    let capture = CaptureHandle::start(
+    let mut capture = CaptureHandle::start(
         cli.interface.as_deref(),
         cli.filter.as_deref(),
         Arc::clone(&app),
     )?;
+
+    let bpf_filter = cli.filter.clone();
 
     enable_raw_mode()?;
     io::stdout().execute(EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_loop(&mut terminal, &app);
+    let result = run_loop(&mut terminal, &app, &mut capture, bpf_filter.as_deref());
 
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen)?;
@@ -107,9 +109,28 @@ fn main() -> Result<()> {
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &Arc<Mutex<App>>,
+    capture: &mut CaptureHandle,
+    bpf_filter: Option<&str>,
 ) -> Result<()> {
     let mut refresh_counter: u32 = 0;
     loop {
+        // Check for pending interface switch.
+        {
+            let mut a = app.lock().expect("app mutex poisoned");
+            if let Some(iface) = a.pending_interface.take() {
+                capture.stop();
+                match CaptureHandle::start(Some(&iface), bpf_filter, Arc::clone(app)) {
+                    Ok(new_cap) => {
+                        *capture = new_cap;
+                        a.set_status(format!("Switched to {iface}"));
+                    }
+                    Err(e) => {
+                        a.set_status(format!("Switch failed: {e}"));
+                    }
+                }
+            }
+        }
+
         {
             let mut app = app.lock().expect("app mutex poisoned");
             app.tick_status();
@@ -138,6 +159,18 @@ fn run_loop(
 
 /// Returns `true` if the app should quit.
 fn handle_key(app: &mut App, code: KeyCode) -> bool {
+    // Interface picker overlay — intercept keys first.
+    if app.interface_picker.is_some() {
+        match code {
+            KeyCode::Esc => app.close_interface_picker(),
+            KeyCode::Enter => app.iface_picker_select(),
+            KeyCode::Down | KeyCode::Char('j') => app.iface_picker_next(),
+            KeyCode::Up | KeyCode::Char('k') => app.iface_picker_prev(),
+            _ => {}
+        }
+        return false;
+    }
+
     // Process picker overlay — intercept keys first.
     if app.process_picker.is_some() {
         match code {
@@ -204,6 +237,11 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         }
         KeyCode::Char('n') => app.open_flows(),
         KeyCode::Char('N') => app.clear_flow_filter(),
+        KeyCode::Char('i') => {
+            if let Ok(ifaces) = capture::list_interfaces() {
+                app.open_interface_picker(ifaces);
+            }
+        }
         _ => {}
     }
     false
