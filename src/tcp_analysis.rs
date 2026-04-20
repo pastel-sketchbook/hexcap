@@ -12,7 +12,7 @@ use crate::packet::{CapturedPacket, Protocol};
 /// Per-direction state for one side of a TCP connection.
 #[derive(Debug, Clone, Default)]
 struct DirectionState {
-    /// Next expected sequence number (seq + segment_len).
+    /// Next expected sequence number (seq + `segment_len`).
     next_seq: u32,
     /// Last-seen acknowledgment number.
     last_ack: u32,
@@ -20,7 +20,7 @@ struct DirectionState {
     last_window: u16,
     /// Number of consecutive duplicate ACKs.
     dup_ack_count: u32,
-    /// Whether we've seen any data (next_seq has been set).
+    /// Whether we've seen any data (`next_seq` has been set).
     initialized: bool,
 }
 
@@ -31,7 +31,7 @@ struct DirectionalKey(String, String);
 
 /// TCP analysis engine. Accumulates state across packets.
 pub struct TcpAnalyser {
-    /// Per-direction state. Key is (src_addr, dst_addr) — not normalized.
+    /// Per-direction state. Key is (`src_addr`, `dst_addr`) — not normalized.
     state: HashMap<DirectionalKey, DirectionState>,
 }
 
@@ -43,6 +43,7 @@ impl TcpAnalyser {
     }
 
     /// Analyse a single packet and return expert items (may be empty).
+    #[allow(clippy::too_many_lines)]
     pub fn analyse(&mut self, pkt: &CapturedPacket) -> Vec<ExpertItem> {
         if pkt.protocol != Protocol::Tcp && pkt.protocol != Protocol::Dns {
             return vec![];
@@ -72,9 +73,7 @@ impl TcpAnalyser {
         let is_ack = flags & 0x10 != 0;
 
         // Effective segment length: SYN and FIN each consume one sequence number.
-        let effective_len = segment_len
-            + u32::from(is_syn)
-            + u32::from(is_fin);
+        let effective_len = segment_len + u32::from(is_syn) + u32::from(is_fin);
 
         // --- Chat-level: connection lifecycle events ---
         let lifecycle_summary = match (is_syn, is_ack, is_fin) {
@@ -131,9 +130,7 @@ impl TcpAnalyser {
                     items.push(ExpertItem {
                         severity: Severity::Warn,
                         group: ExpertGroup::Sequence,
-                        summary: format!(
-                            "TCP Previous segment not captured ({gap} bytes missing)"
-                        ),
+                        summary: format!("TCP Previous segment not captured ({gap} bytes missing)"),
                     });
                 }
             }
@@ -199,6 +196,7 @@ impl TcpAnalyser {
     }
 
     /// Extract TCP header fields from a captured packet.
+    #[allow(clippy::cast_possible_truncation)] // TCP segment length bounded by MTU
     fn extract_tcp_fields(pkt: &CapturedPacket) -> Option<TcpFields> {
         let data = &pkt.data;
         if data.len() < 14 {
@@ -208,7 +206,9 @@ impl TcpAnalyser {
         let ip = &data[14..];
         let ip_hdr_len = match ethertype {
             0x0800 => {
-                if ip.is_empty() { return None; }
+                if ip.is_empty() {
+                    return None;
+                }
                 ((ip[0] & 0x0F) as usize) * 4
             }
             0x86DD => 40,

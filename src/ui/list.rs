@@ -112,9 +112,9 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
 
     // Precompute first-packet timestamp and time reference timestamp.
     let first_ts = app.packets.front().map(|p| p.timestamp);
-    let ref_ts = app.time_reference.and_then(|id| {
-        app.packets.iter().find(|p| p.id == id).map(|p| p.timestamp)
-    });
+    let ref_ts = app
+        .time_reference
+        .and_then(|id| app.packets.iter().find(|p| p.id == id).map(|p| p.timestamp));
     let mut prev_ts: Option<std::time::SystemTime> = None;
 
     let rows: Vec<Row> = app

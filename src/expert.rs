@@ -75,9 +75,9 @@ pub fn severity_symbol(severity: Severity) -> &'static str {
 pub fn severity_color(severity: Severity) -> ratatui::style::Color {
     use ratatui::style::Color;
     match severity {
-        Severity::Chat => Color::Rgb(100, 160, 255),  // blue
-        Severity::Note => Color::Rgb(80, 200, 200),   // cyan
-        Severity::Warn => Color::Rgb(230, 200, 60),   // yellow
-        Severity::Error => Color::Rgb(255, 80, 80),   // red
+        Severity::Chat => Color::Rgb(100, 160, 255), // blue
+        Severity::Note => Color::Rgb(80, 200, 200),  // cyan
+        Severity::Warn => Color::Rgb(230, 200, 60),  // yellow
+        Severity::Error => Color::Rgb(255, 80, 80),  // red
     }
 }

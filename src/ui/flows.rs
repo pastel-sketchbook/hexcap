@@ -59,7 +59,7 @@ fn format_rate(bytes: u64, secs: f64) -> String {
     }
     let bps = bytes as f64 / secs;
     if bps < 1024.0 {
-        format!("{:.0} B/s", bps)
+        format!("{bps:.0} B/s")
     } else if bps < 1024.0 * 1024.0 {
         format!("{:.1} KB/s", bps / 1024.0)
     } else {
@@ -99,8 +99,8 @@ pub fn draw_flows_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect)
 
             Row::new(vec![
                 Cell::from(f.protocol.to_string()),
-                Cell::from(f.src.clone()),
-                Cell::from(f.dst.clone()),
+                Cell::from(f.src.as_str()),
+                Cell::from(f.dst.as_str()),
                 Cell::from(f.packets_a_to_b.to_string()),
                 Cell::from(format_bytes(f.bytes_a_to_b)),
                 Cell::from(f.packets_b_to_a.to_string()),

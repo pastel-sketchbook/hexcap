@@ -78,11 +78,7 @@ pub fn draw_header(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
 
     // Right: status badges + packet count
     let mut right_spans: Vec<Span> = Vec::new();
-    let badge_style = |fg| {
-        Style::default()
-            .fg(fg)
-            .add_modifier(Modifier::BOLD)
-    };
+    let badge_style = |fg| Style::default().fg(fg).add_modifier(Modifier::BOLD);
     let sep = || Span::raw("  ");
 
     // Time format badge.

@@ -215,7 +215,7 @@ fn main() -> Result<()> {
         candidates
             .iter()
             .find(|p| std::path::Path::new(p).exists())
-            .map(|p| p.to_string())
+            .map(std::string::ToString::to_string)
     });
     let geoip_db = if let Some(ref path) = geoip_path {
         match geoip::GeoDb::open(std::path::Path::new(path)) {
@@ -458,6 +458,7 @@ fn handle_mouse(app: &mut App, kind: MouseEventKind) {
 }
 
 /// Returns `true` if the app should quit.
+#[allow(clippy::too_many_lines)]
 fn handle_key(app: &mut App, code: KeyCode) -> bool {
     // Interface picker overlay — intercept keys first.
     if app.interface_picker.is_some() {

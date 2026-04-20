@@ -10,9 +10,8 @@ use crate::theme::Theme;
 pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
     let area = frame.area();
 
-    let flow = match app.flows.get(app.flow_selected) {
-        Some(f) => f,
-        None => return,
+    let Some(flow) = app.flows.get(app.flow_selected) else {
+        return;
     };
 
     let flow_key = &flow.key;
@@ -68,8 +67,8 @@ pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
     };
 
     for pkt in visible {
-        let is_left_to_right = pkt.src == *left
-            || (pkt.src != *right && strip_port(&pkt.src) == strip_port(left));
+        let is_left_to_right =
+            pkt.src == *left || (pkt.src != *right && strip_port(&pkt.src) == strip_port(left));
 
         // Build the info label: protocol + length + optional flags.
         let info = build_info_label(pkt);
@@ -110,7 +109,7 @@ pub fn draw_flow_graph(frame: &mut Frame, app: &App, theme: &Theme) {
 
     frame.render_widget(Clear, popup);
 
-    let title = format!(" Flow: {} ↔ {} ", left_label, right_label);
+    let title = format!(" Flow: {left_label} ↔ {right_label} ");
     let paragraph = Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::ALL)

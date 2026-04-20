@@ -111,14 +111,16 @@ fn draw_list_layout(frame: &mut Frame, app: &App) {
     header::draw_header(frame, app, theme, chunks[0]);
     stats::draw_stats_row(frame, app, theme, chunks[1]);
     list::draw_packet_table(frame, app, theme, chunks[2]);
-    if app.input_mode == InputMode::Search {
-        list::draw_search_bar(frame, app, theme, chunks[3]);
-    } else if app.input_mode == InputMode::GoToPacket {
-        list::draw_goto_bar(frame, app, theme, chunks[3]);
-    } else if app.annotating.is_some() {
-        list::draw_annotation_bar(frame, app, theme, chunks[3]);
-    } else if app.display_filter_editing {
-        list::draw_display_filter_bar(frame, app, theme, chunks[3]);
+    match app.input_mode {
+        InputMode::Search => list::draw_search_bar(frame, app, theme, chunks[3]),
+        InputMode::GoToPacket => list::draw_goto_bar(frame, app, theme, chunks[3]),
+        InputMode::Normal if app.annotating.is_some() => {
+            list::draw_annotation_bar(frame, app, theme, chunks[3]);
+        }
+        InputMode::Normal if app.display_filter_editing => {
+            list::draw_display_filter_bar(frame, app, theme, chunks[3]);
+        }
+        InputMode::Normal => {}
     }
     footer::draw_footer(frame, app, theme, chunks[4]);
 }
@@ -131,7 +133,11 @@ fn draw_detail_layout(frame: &mut Frame, app: &App) {
     // Calculate decoded fields height dynamically (includes expert items).
     let decoded_count = app.selected_packet().map_or(0, |pkt| {
         let base = pkt.decoded.len().max(1);
-        let expert_lines = if pkt.expert.is_empty() { 0 } else { pkt.expert.len() + 1 };
+        let expert_lines = if pkt.expert.is_empty() {
+            0
+        } else {
+            pkt.expert.len() + 1
+        };
         base + expert_lines
     });
     let decoded_height = u16::try_from(decoded_count)

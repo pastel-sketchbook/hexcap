@@ -60,7 +60,11 @@ fn build_hierarchy(app: &App) -> HierNode {
             }
             Protocol::Tcp | Protocol::Dns => {
                 // Determine IPv4 vs IPv6 from address format.
-                let l3_name = if is_ipv6_addr(&pkt.src) { "IPv6" } else { "IPv4" };
+                let l3_name = if is_ipv6_addr(&pkt.src) {
+                    "IPv6"
+                } else {
+                    "IPv4"
+                };
                 let ipv = eth.child(l3_name);
                 ipv.add(1, bytes);
 
@@ -81,7 +85,11 @@ fn build_hierarchy(app: &App) -> HierNode {
                 }
             }
             Protocol::Udp => {
-                let l3_name = if is_ipv6_addr(&pkt.src) { "IPv6" } else { "IPv4" };
+                let l3_name = if is_ipv6_addr(&pkt.src) {
+                    "IPv6"
+                } else {
+                    "IPv4"
+                };
                 let ipv = eth.child(l3_name);
                 ipv.add(1, bytes);
 
@@ -89,15 +97,19 @@ fn build_hierarchy(app: &App) -> HierNode {
                 udp.add(1, bytes);
 
                 // DNS over UDP (check port 53).
-                let is_dns = extract_port(&pkt.src) == Some(53)
-                    || extract_port(&pkt.dst) == Some(53);
+                let is_dns =
+                    extract_port(&pkt.src) == Some(53) || extract_port(&pkt.dst) == Some(53);
                 if is_dns {
                     let dns = udp.child("DNS");
                     dns.add(1, bytes);
                 }
             }
             Protocol::Other(_) => {
-                let l3_name = if is_ipv6_addr(&pkt.src) { "IPv6" } else { "IPv4" };
+                let l3_name = if is_ipv6_addr(&pkt.src) {
+                    "IPv6"
+                } else {
+                    "IPv4"
+                };
                 let ipv = eth.child(l3_name);
                 ipv.add(1, bytes);
             }
@@ -108,6 +120,7 @@ fn build_hierarchy(app: &App) -> HierNode {
 }
 
 /// Flatten the hierarchy tree into indented lines for display.
+#[allow(clippy::cast_precision_loss)] // percentages — precision loss acceptable
 fn flatten_tree<'a>(
     node: &HierNode,
     name: &'a str,
@@ -132,7 +145,14 @@ fn flatten_tree<'a>(
     let mut children: Vec<_> = node.children.iter().collect();
     children.sort_by_key(|(_, n)| std::cmp::Reverse(n.packets));
     for (child_name, child_node) in children {
-        flatten_tree(child_node, child_name, depth + 1, total_packets, total_bytes, out);
+        flatten_tree(
+            child_node,
+            child_name,
+            depth + 1,
+            total_packets,
+            total_bytes,
+            out,
+        );
     }
 }
 
@@ -151,7 +171,10 @@ fn build_endpoints(app: &App) -> Vec<(String, usize, u64)> {
         }
     }
 
-    let mut endpoints: Vec<_> = map.into_iter().map(|(ip, (pkts, bytes))| (ip, pkts, bytes)).collect();
+    let mut endpoints: Vec<_> = map
+        .into_iter()
+        .map(|(ip, (pkts, bytes))| (ip, pkts, bytes))
+        .collect();
     endpoints.sort_by_key(|(_, pkts, _)| std::cmp::Reverse(*pkts));
     endpoints
 }
@@ -199,7 +222,7 @@ fn format_bytes(bytes: u64) -> String {
 }
 
 /// Render the protocol hierarchy and endpoint stats overlay.
-#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub fn draw_proto_hierarchy(frame: &mut Frame, app: &App, theme: &Theme) {
     let area = frame.area();
 

@@ -485,9 +485,10 @@ impl App {
         if let Ok(target_id) = self.goto_buf.parse::<u64>() {
             let filtered = self.filtered_indices();
             // Find the packet with this ID in the filtered view.
-            if let Some(&idx) = filtered.iter().find(|&&i| {
-                self.packets.get(i).is_some_and(|p| p.id == target_id)
-            }) {
+            if let Some(&idx) = filtered
+                .iter()
+                .find(|&&i| self.packets.get(i).is_some_and(|p| p.id == target_id))
+            {
                 self.selected = idx;
                 self.follow = false;
             } else {
@@ -614,8 +615,7 @@ impl App {
         }
         // Determine direction: does the packet's src match the flow's stored src?
         // The flow key is normalized (sorted), so flow.0 == fi.src side.
-        let is_a_to_b = pkt.src == fi.src
-            || (pkt.src != fi.dst && pkt.src <= pkt.dst);
+        let is_a_to_b = pkt.src == fi.src || (pkt.src != fi.dst && pkt.src <= pkt.dst);
         if is_a_to_b {
             fi.packets_a_to_b += 1;
             fi.bytes_a_to_b += pkt.length as u64;
@@ -771,6 +771,7 @@ impl App {
     // -- TCP stream follow ---------------------------------------------------
 
     /// Open the TCP stream view for the currently selected packet's flow.
+    #[allow(clippy::cast_possible_truncation)] // TCP segment lengths bounded by MTU
     pub fn open_stream(&mut self) {
         let Some(pkt) = self.selected_packet() else {
             return;
@@ -829,8 +830,7 @@ impl App {
                         if overlap < data.len() {
                             // Partial new data after the overlap.
                             payload.extend_from_slice(&data[overlap..]);
-                            next_seq =
-                                Some(seq.wrapping_add(data.len() as u32));
+                            next_seq = Some(seq.wrapping_add(data.len() as u32));
                         }
                         // Else: fully retransmitted segment — skip.
                     }

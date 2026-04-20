@@ -748,14 +748,20 @@ pub fn matches_display_filter(pkt: &CapturedPacket, filter: &str) -> bool {
 fn split_or(filter: &str) -> Vec<String> {
     // Replace ` or ` (word-bounded) with `||`, then split on `||`.
     let normalized = filter.replace(" or ", " || ").replace(" OR ", " || ");
-    normalized.split("||").map(|s| s.trim().to_string()).collect()
+    normalized
+        .split("||")
+        .map(|s| s.trim().to_string())
+        .collect()
 }
 
 /// Split an AND group on `&&` or `and`; otherwise whitespace-separated tokens.
 fn split_and(group: &str) -> Vec<String> {
     let normalized = group.replace(" and ", " && ").replace(" AND ", " && ");
     if normalized.contains("&&") {
-        normalized.split("&&").map(|s| s.trim().to_string()).collect()
+        normalized
+            .split("&&")
+            .map(|s| s.trim().to_string())
+            .collect()
     } else {
         // Implicit AND: whitespace-separated tokens.
         normalized.split_whitespace().map(String::from).collect()
@@ -790,10 +796,22 @@ fn eval_atom(pkt: &CapturedPacket, tok: &str) -> bool {
         "ack" => pkt.tcp_flags & 0x10 != 0,
         "psh" => pkt.tcp_flags & 0x08 != 0,
         "expert" => !pkt.expert.is_empty(),
-        "expert.chat" => pkt.expert.iter().any(|e| e.severity == crate::expert::Severity::Chat),
-        "expert.note" => pkt.expert.iter().any(|e| e.severity == crate::expert::Severity::Note),
-        "expert.warn" => pkt.expert.iter().any(|e| e.severity == crate::expert::Severity::Warn),
-        "expert.error" => pkt.expert.iter().any(|e| e.severity == crate::expert::Severity::Error),
+        "expert.chat" => pkt
+            .expert
+            .iter()
+            .any(|e| e.severity == crate::expert::Severity::Chat),
+        "expert.note" => pkt
+            .expert
+            .iter()
+            .any(|e| e.severity == crate::expert::Severity::Note),
+        "expert.warn" => pkt
+            .expert
+            .iter()
+            .any(|e| e.severity == crate::expert::Severity::Warn),
+        "expert.error" => pkt
+            .expert
+            .iter()
+            .any(|e| e.severity == crate::expert::Severity::Error),
         other => eval_comparison(pkt, other),
     }
 }
