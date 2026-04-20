@@ -1,6 +1,7 @@
 # hexcap
 
-TUI packet capture tool with libpcap, hexyl-style hex dump, and display filters.
+TUI packet capture tool with libpcap, hexyl-style hex dump, display filters,
+TCP analysis, and protocol hierarchy.
 
 Captures live network packets, displays them in a scrollable table with
 protocol-colored tags, and provides per-packet hex inspection — all in the
@@ -35,6 +36,18 @@ terminal.
 - **Packet diff** — mark two packets and compare hex dumps side-by-side
 - **Capture statistics** — protocol distribution, top talkers, top conversations popup
 - **Display filters** — `\` key opens filter bar; tokens: `tcp`, `udp`, `icmp`, `dns`, `arp`, `port:N`, `ip:ADDR`, `syn`, `rst`, `fin`, `!` negation
+- **Advanced filter syntax** — `||`/`or`, `&&`/`and` combinators; `len>N`/`len<=N` comparisons; `ack`, `psh` flags; `expert`, `expert.warn`, `expert.error` filters
+- **TCP sequence analysis** — Wireshark-style retransmission, duplicate ACK, out-of-order, zero window, keep-alive, window full, gap detection
+- **Expert information** — severity-graded diagnostic items (Chat/Note/Warn/Error) from TCP analysis, shown in detail view and `E` overlay
+- **Time display formats** — absolute (HH:MM:SS), relative (since first packet), delta (since previous); cycle with `T`
+- **Time references** — set any packet as t=0 reference point with `R`; `*` prefix indicates reference
+- **Go-to-packet** — `:` opens input bar; type packet number and press Enter to jump
+- **Protocol hierarchy** — `H` shows protocol layer tree (Ethernet → IPv4 → TCP → TLS) with packet counts and byte percentages
+- **Endpoint statistics** — per-IP packet and byte totals in the protocol hierarchy overlay
+- **Flow sequence diagram** — `G` in flows view shows arrow-style sequence diagram for the selected flow
+- **Conversation details** — directional A→B/B→A packet and byte counts, duration, throughput rate in flows table
+- **TCP reassembly** — sequence-number ordered payload reconstruction with overlap deduplication
+- **Header status badges** — time format, interface, DNS, active filter, process filter, bookmark count
 - **GeoIP lookup** — `--geoip path/to/mmdb` appends country code `[XX]` to IP addresses
 - **Packet annotations** — `a` key adds free-text annotation (✎ icon), persisted to `.pcap.annotations` sidecar
 - **Follow speed cycling** — `F` cycles follow-mode speed: off / 1 / 5 / 10 / 25 packet intervals
@@ -149,6 +162,11 @@ sudo hexcap --json -i en0 --max-packets 200
 | `<` / `>`     | Narrow / widen column        |
 | `x`            | Mark packet for diff / show diff |
 | `I`            | Capture statistics summary   |
+| `E`            | Expert information overlay   |
+| `H`            | Protocol hierarchy & endpoints |
+| `T`            | Cycle time format (abs/rel/delta) |
+| `R`            | Toggle time reference on packet |
+| `:`            | Go to packet by number       |
 | `?`            | Show keybindings help        |
 | `t`            | Cycle theme                  |
 | `q`            | Quit                         |
@@ -180,6 +198,7 @@ sudo hexcap --json -i en0 --max-packets 200
 |----------------|-------------------------------|
 | `j` / `k`     | Navigate flows               |
 | `Enter`        | Filter list by selected flow |
+| `G`            | Flow sequence diagram        |
 | `t`            | Cycle theme                  |
 | `q` / `Esc`   | Back to list                 |
 
@@ -209,25 +228,30 @@ src/
   clipboard.rs  — system clipboard helper (pbcopy/xclip)
   config.rs     — theme persistence (TOML)
   dns.rs        — reverse DNS resolution (libc getnameinfo)
+  expert.rs     — expert information system (Severity, ExpertGroup, ExpertItem)
   export.rs     — pcap file writer and reader
   geoip.rs      — GeoIP country lookup (MaxMind MMDB)
   headless.rs   — JSON output for subcommands and --json flag
   hex.rs        — hexyl-style hex dump renderer
-  packet.rs     — packet parsing (IPv4/IPv6), protocol decode, TLS decode
+  packet.rs     — packet parsing (IPv4/IPv6), protocol decode, TLS decode, display filters
   process.rs    — process-to-socket resolution (lsof)
+  tcp_analysis.rs — Wireshark-style TCP sequence analysis (retransmissions, dup ACKs, etc.)
   theme.rs      — 16 themes, Ghostty auto-detection
   ui/
     mod.rs      — layout dispatcher
-    header.rs   — title bar, live/paused badge
+    header.rs   — title bar, live/paused badge, status badges
     list.rs     — packet table with flow colors, bookmarks, DNS display
     detail.rs   — decoded fields panel + hex dump + stream view
-    flows.rs    — connection tracking table
+    flows.rs    — connection tracking table with directional stats
+    flow_graph.rs — flow sequence diagram overlay
     footer.rs   — adaptive key hints (priority-ordered, width-aware)
     picker.rs   — process + interface picker overlays
     stats.rs    — protocol counts, bandwidth sparkline, duration, PPS
     helpers.rs  — shared UI utilities
     help.rs     — keyboard shortcut help overlay
     stats_summary.rs — capture statistics summary overlay
+    expert_overlay.rs — expert information overlay
+    proto_hierarchy.rs — protocol hierarchy & endpoint stats overlay
     diff.rs     — packet hex diff overlay
 ```
 
