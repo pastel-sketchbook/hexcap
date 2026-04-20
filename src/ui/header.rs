@@ -76,15 +76,71 @@ pub fn draw_header(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     left_spans.push(status_badge(app.paused, theme));
     frame.render_widget(Paragraph::new(Line::from(left_spans)), cols[0]);
 
-    // Right: GeoIP badge (if loaded) + packet count
-    let mut right_spans = Vec::new();
-    if app.geoip_enabled {
-        right_spans.push(Span::styled(
-            "GeoIP",
-            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
-        ));
-        right_spans.push(Span::raw("  "));
+    // Right: status badges + packet count
+    let mut right_spans: Vec<Span> = Vec::new();
+    let badge_style = |fg| {
+        Style::default()
+            .fg(fg)
+            .add_modifier(Modifier::BOLD)
+    };
+    let sep = || Span::raw("  ");
+
+    // Time format badge.
+    {
+        use crate::app::TimeFormat;
+        let label = match app.time_format {
+            TimeFormat::Absolute => "Abs",
+            TimeFormat::Relative => "Rel",
+            TimeFormat::Delta => "Δt",
+        };
+        right_spans.push(Span::styled(label, badge_style(theme.muted)));
+        right_spans.push(sep());
     }
+
+    // Interface name.
+    if !app.interface_name.is_empty() {
+        right_spans.push(Span::styled(
+            app.interface_name.clone(),
+            badge_style(theme.fg),
+        ));
+        right_spans.push(sep());
+    }
+
+    // DNS badge.
+    if app.dns_enabled {
+        right_spans.push(Span::styled("DNS", badge_style(theme.tag)));
+        right_spans.push(sep());
+    }
+
+    // Active display filter.
+    if !app.display_filter.is_empty() {
+        right_spans.push(Span::styled("\\", badge_style(theme.highlight_fg)));
+        right_spans.push(sep());
+    }
+
+    // Process filter.
+    if let Some(ref pf) = app.process_filter {
+        let label = format!("⚙ {}", pf.name);
+        right_spans.push(Span::styled(label, badge_style(theme.hex_ascii)));
+        right_spans.push(sep());
+    }
+
+    // Bookmark count (only when bookmarks exist).
+    if !app.bookmarks.is_empty() {
+        right_spans.push(Span::styled(
+            format!("★{}", app.bookmarks.len()),
+            badge_style(theme.highlight_fg),
+        ));
+        right_spans.push(sep());
+    }
+
+    // GeoIP badge.
+    if app.geoip_enabled {
+        right_spans.push(Span::styled("GeoIP", badge_style(theme.accent)));
+        right_spans.push(sep());
+    }
+
+    // Packet count.
     right_spans.push(Span::styled(
         format!("{}", app.packets.len()),
         Style::default().add_modifier(Modifier::BOLD),
