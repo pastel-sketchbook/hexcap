@@ -1,6 +1,6 @@
 use ratatui::prelude::*;
 use ratatui::text::Span;
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Padding, Paragraph};
 
 use crate::app::App;
 use crate::theme::Theme;
@@ -103,7 +103,7 @@ pub fn draw_interface_picker(frame: &mut Frame, app: &App, theme: &Theme) {
     };
 
     let area = frame.area();
-    let popup_width = (area.width * 60 / 100).clamp(40, 70);
+    let popup_width = 66.min(area.width.saturating_sub(2));
     let popup_height = (area.height * 50 / 100).clamp(8, 20);
     let x = (area.width.saturating_sub(popup_width)) / 2;
     let y = (area.height.saturating_sub(popup_height)) / 2;
@@ -147,7 +147,8 @@ pub fn draw_interface_picker(frame: &mut Frame, app: &App, theme: &Theme) {
                     Style::default()
                         .fg(theme.accent)
                         .add_modifier(Modifier::BOLD),
-                ),
+                )
+                .padding(Padding::horizontal(1)),
         )
         .highlight_style(
             Style::default()
