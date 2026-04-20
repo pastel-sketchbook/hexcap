@@ -142,6 +142,8 @@ and their light variants.
 - **Multi-interface capture**: `-i en0,lo0` comma-separated interface list; spawns one capture thread per interface.
 - **Headless/JSON mode**: CLI subcommands (`read`, `capture`, `flows`, `stats`, `stream`, `decode`, `interfaces`) bypass the TUI and emit JSON (array or JSONL) to stdout for agent/pipeline consumption. The `--json` flag on the root CLI provides the same headless output for `--read` (JSON array) and live capture (JSONL, bounded by `--max-packets`).
 - **Agent pipe/socket**: `--pipe "command"` spawns a child process, feeds JSONL packets to its stdin, and displays stdout in a 35% bottom split pane. `--socket /path/to/sock` creates a Unix domain socket broadcasting JSONL to all connected clients. `A` toggles agent pane visibility; `J`/`K` scroll the pane.
+- **Agent picker**: `A` key (with no active agent) opens a picker to select from 4 built-in agents: Copilot, OpenCode, Gemini, Amp. Selected agent is spawned as a pipe child.
+- **Agent command protocol**: Agents send `@@HEXCAP:{"action":"..."}` lines on stdout to control the TUI. Supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`.
 
 ## Conventions
 

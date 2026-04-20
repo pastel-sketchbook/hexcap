@@ -58,6 +58,8 @@ terminal.
 - **Headless/JSON mode** — CLI subcommands and `--json` flag for agent/pipeline consumption
 - **Agent pipe** — `--pipe "command"` spawns a child, feeds JSONL to stdin, displays stdout in a 35% bottom pane
 - **Agent socket** — `--socket /path` creates a Unix domain socket broadcasting JSONL to all connected clients
+- **Agent picker** — `A` key opens picker to select from Copilot, OpenCode, Gemini, Amp agents
+- **Agent commands** — agents control the TUI via `@@HEXCAP:` protocol (filter, goto, pause, export, etc.)
 
 ## Install
 
@@ -190,7 +192,7 @@ sudo hexcap --json -i en0 --max-packets 200
 | `T`            | Cycle time format (abs/rel/delta) |
 | `R`            | Toggle time reference on packet |
 | `:`            | Go to packet by number       |
-| `A`            | Toggle agent output pane     |
+| `A`            | Agent picker / toggle pane    |
 | `J` / `K`     | Scroll agent pane down/up    |
 | `?`            | Show keybindings help        |
 | `t`            | Cycle theme                  |

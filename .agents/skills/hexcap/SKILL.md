@@ -113,7 +113,7 @@ sudo hexcap --max-packets 5000
 | `T` | Cycle time format (absolute / relative / delta) |
 | `R` | Toggle time reference on selected packet (t=0 point) |
 | `:` | Go to packet by number |
-| `A` | Toggle agent output pane |
+| `A` | Agent picker / toggle pane |
 | `J` / `K` | Scroll agent pane down / up |
 | `?` | Keyboard shortcut help |
 | `Tab` | Select column to resize |
@@ -350,6 +350,23 @@ sudo hexcap --socket /tmp/hexcap.sock
 hexcap read capture.pcap --dns --geoip country.mmdb --compact
 ```
 
+**Agent command protocol (agent → TUI):**
+```
+# Agent writes these lines to stdout to control hexcap:
+@@HEXCAP:{"action":"filter","value":"tcp port:443"}
+@@HEXCAP:{"action":"goto","id":42}
+@@HEXCAP:{"action":"pause"}
+@@HEXCAP:{"action":"resume"}
+@@HEXCAP:{"action":"export","file":"/tmp/capture.pcap"}
+@@HEXCAP:{"action":"status","message":"Analyzing..."}
+@@HEXCAP:{"action":"bookmark","id":10}
+@@HEXCAP:{"action":"annotate","id":5,"text":"suspicious retransmission"}
+@@HEXCAP:{"action":"flows"}
+@@HEXCAP:{"action":"clear"}
+@@HEXCAP:{"action":"view","target":"detail"}
+@@HEXCAP:{"action":"mark_diff","id":7}
+```
+
 ## Architecture Notes
 
 - Capture runs on background thread(s) via `std::thread`; TUI on main thread
@@ -367,3 +384,5 @@ hexcap read capture.pcap --dns --geoip country.mmdb --compact
 - Ring buffer: `VecDeque` bounded by `--max-packets`
 - Agent pipe: spawns child via `sh -c`, JSONL to stdin, stdout read into ring buffer, displayed in 35% bottom split pane
 - Agent socket: Unix domain socket, accepts multiple clients, broadcasts JSONL; cleaned up on drop
+- Agent picker: `A` key opens picker listing Copilot, OpenCode, Gemini, Amp; spawns selection as pipe child
+- Agent command protocol: agents write `@@HEXCAP:{"action":"..."}` to stdout to control TUI; supported actions: `filter`, `goto`, `pause`, `resume`, `export`, `dns`, `status`, `bookmark`, `annotate`, `flows`, `clear`, `view`, `mark_diff`
