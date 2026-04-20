@@ -32,6 +32,8 @@ const BINDINGS: &[(&str, &str)] = &[
     ("< / >", "Narrow/widen column"),
     ("I", "Capture statistics summary"),
     ("E", "Expert information overlay"),
+    ("T", "Cycle time format (abs/rel/delta)"),
+    ("R", "Toggle time reference on packet"),
     ("x", "Mark packet for diff / show diff"),
     ("a", "Annotate packet"),
     ("\\", "Display filter (tcp, port:443, !arp)"),

@@ -12,6 +12,18 @@ use crate::process::ProcessInfo;
 use crate::tcp_analysis::TcpAnalyser;
 use crate::theme::{self, Theme};
 
+/// How timestamps are displayed in the packet list.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TimeFormat {
+    /// Absolute wall-clock time (HH:MM:SS.mmm).
+    #[default]
+    Absolute,
+    /// Seconds since first packet in the capture.
+    Relative,
+    /// Seconds since the previous displayed packet.
+    Delta,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
     List,
@@ -188,6 +200,11 @@ pub struct App {
 
     // -- Expert info overlay --
     pub show_expert: bool,
+
+    // -- Time display --
+    pub time_format: TimeFormat,
+    /// Packet ID set as time reference (t=0 point).
+    pub time_reference: Option<u64>,
 }
 
 /// Aggregated info for a single bidirectional flow.
@@ -293,6 +310,8 @@ impl App {
             diff_pair: None,
             tcp_analyser: TcpAnalyser::new(),
             show_expert: false,
+            time_format: TimeFormat::Absolute,
+            time_reference: None,
         }
     }
 
@@ -306,6 +325,38 @@ impl App {
     pub fn next_theme(&mut self) {
         self.theme_index = (self.theme_index + 1) % theme::THEMES.len();
         self.persist_preferences();
+    }
+
+    /// Cycle time display format: Absolute → Relative → Delta → Absolute.
+    pub fn cycle_time_format(&mut self) {
+        self.time_format = match self.time_format {
+            TimeFormat::Absolute => {
+                self.set_status("Time: relative (since first packet)".into());
+                TimeFormat::Relative
+            }
+            TimeFormat::Relative => {
+                self.set_status("Time: delta (since previous packet)".into());
+                TimeFormat::Delta
+            }
+            TimeFormat::Delta => {
+                self.set_status("Time: absolute".into());
+                TimeFormat::Absolute
+            }
+        };
+    }
+
+    /// Toggle time reference on current packet.
+    pub fn toggle_time_reference(&mut self) {
+        if let Some(pkt) = self.selected_packet() {
+            let id = pkt.id;
+            if self.time_reference == Some(id) {
+                self.time_reference = None;
+                self.set_status("Time reference cleared".into());
+            } else {
+                self.time_reference = Some(id);
+                self.set_status(format!("Time reference set to #{id}"));
+            }
+        }
     }
 
     fn persist_preferences(&self) {

@@ -625,6 +625,8 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('x') => app.mark_or_diff(),
         KeyCode::Char('a') => app.start_annotate(),
         KeyCode::Char('\\') => app.start_display_filter(),
+        KeyCode::Char('T') => app.cycle_time_format(),
+        KeyCode::Char('R') => app.toggle_time_reference(),
         _ => {}
     }
     false

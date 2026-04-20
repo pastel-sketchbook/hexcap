@@ -5,7 +5,7 @@ use ratatui::prelude::*;
 use ratatui::text::Span;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 
-use crate::app::App;
+use crate::app::{App, TimeFormat};
 use crate::dns;
 use crate::expert;
 use crate::geoip;
@@ -110,6 +110,13 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
     let mut flow_map: HashMap<FlowKey, usize> = HashMap::new();
     let mut next_color: usize = 0;
 
+    // Precompute first-packet timestamp and time reference timestamp.
+    let first_ts = app.packets.front().map(|p| p.timestamp);
+    let ref_ts = app.time_reference.and_then(|id| {
+        app.packets.iter().find(|p| p.id == id).map(|p| p.timestamp)
+    });
+    let mut prev_ts: Option<std::time::SystemTime> = None;
+
     let rows: Vec<Row> = app
         .packets
         .iter()
@@ -128,12 +135,17 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
 
             let has_bookmark = app.bookmarks.contains(&p.id);
             let has_annotation = app.annotations.contains_key(&p.id);
-            let id_label = match (has_bookmark, has_annotation) {
-                (true, true) => format!("★✎{}", p.id),
-                (true, false) => format!("★{}", p.id),
-                (false, true) => format!("✎{}", p.id),
-                (false, false) => format!("{}", p.id),
+            let is_time_ref = app.time_reference == Some(p.id);
+            let id_label = match (has_bookmark, has_annotation, is_time_ref) {
+                (_, _, true) => format!("*{}", p.id),
+                (true, true, false) => format!("★✎{}", p.id),
+                (true, false, false) => format!("★{}", p.id),
+                (false, true, false) => format!("✎{}", p.id),
+                (false, false, false) => format!("{}", p.id),
             };
+
+            let time_str = format_time(p, app.time_format, first_ts, ref_ts, prev_ts);
+            prev_ts = Some(p.timestamp);
 
             let mut src_display = if app.dns_enabled {
                 dns::resolve_display(&p.src, &app.dns_cache)
@@ -160,7 +172,7 @@ pub fn draw_packet_table(frame: &mut Frame, app: &App, theme: &Theme, area: Rect
 
             Row::new(vec![
                 Cell::from(id_label),
-                Cell::from(format_time(p)),
+                Cell::from(time_str),
                 Cell::from(p.protocol.to_string()).style(Style::default().fg(proto_col)),
                 Cell::from(src_display).style(Style::default().fg(flow_col)),
                 Cell::from(dst_display).style(Style::default().fg(flow_col)),
@@ -264,17 +276,46 @@ pub fn draw_display_filter_bar(frame: &mut Frame, app: &App, theme: &Theme, area
     frame.render_widget(paragraph, area);
 }
 
-fn format_time(p: &CapturedPacket) -> String {
-    let secs = p
-        .timestamp
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs_f64();
-    let s = secs % 86400.0;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let h = (s / 3600.0) as u32;
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let m = ((s % 3600.0) / 60.0) as u32;
-    let sec = s % 60.0;
-    format!("{h:02}:{m:02}:{sec:06.3}")
+fn format_time(
+    p: &CapturedPacket,
+    fmt: TimeFormat,
+    first_ts: Option<std::time::SystemTime>,
+    ref_ts: Option<std::time::SystemTime>,
+    prev_ts: Option<std::time::SystemTime>,
+) -> String {
+    match fmt {
+        TimeFormat::Absolute => {
+            let secs = p
+                .timestamp
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs_f64();
+            let s = secs % 86400.0;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let h = (s / 3600.0) as u32;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let m = ((s % 3600.0) / 60.0) as u32;
+            let sec = s % 60.0;
+            format!("{h:02}:{m:02}:{sec:06.3}")
+        }
+        TimeFormat::Relative => {
+            // If there's a time reference, use that; otherwise use first packet.
+            let base = ref_ts.or(first_ts).unwrap_or(p.timestamp);
+            let delta = p
+                .timestamp
+                .duration_since(base)
+                .unwrap_or_default()
+                .as_secs_f64();
+            format!("{delta:>10.6}")
+        }
+        TimeFormat::Delta => {
+            let base = prev_ts.unwrap_or(p.timestamp);
+            let delta = p
+                .timestamp
+                .duration_since(base)
+                .unwrap_or_default()
+                .as_secs_f64();
+            format!("{delta:>10.6}")
+        }
+    }
 }
