@@ -25,14 +25,16 @@ pub struct Theme {
     pub hex_other: Color,
     pub hex_offset: Color,
     /// 8 flow colors for visual grouping of packet flows.
-    /// Pastel for dark themes, deeper/saturated for light themes (WCAG AA ≥4.5:1).
+    /// Each theme has its own palette derived from its accent/character colors.
     pub flow_colors: [Color; 8],
 }
 
-/// Pastel flow palette for dark backgrounds (WCAG AA ≥4.5:1 against ~#1a1a2e).
-const FLOW_DARK: [Color; 8] = [
+// ── Per-theme flow palettes (dark) ────────────────────────────────────
+
+/// Default dark: cool pastels (cyan accent)
+const FLOW_DEFAULT_DARK: [Color; 8] = [
+    Color::Rgb(130, 220, 255), // sky (accent family)
     Color::Rgb(255, 150, 150), // rose
-    Color::Rgb(150, 200, 255), // sky
     Color::Rgb(180, 255, 180), // mint
     Color::Rgb(255, 210, 130), // peach
     Color::Rgb(200, 170, 255), // lavender
@@ -41,16 +43,186 @@ const FLOW_DARK: [Color; 8] = [
     Color::Rgb(220, 220, 140), // lime
 ];
 
-/// Deep/saturated flow palette for light backgrounds (WCAG AA ≥4.5:1 against ~#f5f5f5).
-const FLOW_LIGHT: [Color; 8] = [
-    Color::Rgb(180, 40, 40),   // crimson
-    Color::Rgb(30, 90, 180),   // cobalt
-    Color::Rgb(20, 130, 50),   // forest
-    Color::Rgb(180, 100, 0),   // amber
-    Color::Rgb(110, 50, 180),  // violet
-    Color::Rgb(0, 130, 120),   // teal
-    Color::Rgb(170, 50, 110),  // magenta
-    Color::Rgb(100, 110, 20),  // olive
+/// Gruvbox dark: earthy warm tones
+const FLOW_GRUVBOX_DARK: [Color; 8] = [
+    Color::Rgb(250, 189, 47),  // yellow (gruvbox yellow)
+    Color::Rgb(204, 36, 29),   // red (gruvbox red, lightened)
+    Color::Rgb(184, 187, 38),  // green (gruvbox green)
+    Color::Rgb(254, 128, 25),  // orange (gruvbox orange)
+    Color::Rgb(211, 134, 155), // purple (gruvbox purple, lightened)
+    Color::Rgb(131, 165, 152), // aqua (gruvbox aqua)
+    Color::Rgb(235, 219, 178), // fg (gruvbox fg)
+    Color::Rgb(169, 182, 101), // olive-green
+];
+
+/// Solarized dark: solarized accent palette
+const FLOW_SOLARIZED_DARK: [Color; 8] = [
+    Color::Rgb(42, 161, 152),  // cyan (solarized cyan)
+    Color::Rgb(220, 50, 47),   // red
+    Color::Rgb(133, 153, 0),   // green
+    Color::Rgb(181, 137, 0),   // yellow
+    Color::Rgb(108, 113, 196), // violet
+    Color::Rgb(38, 139, 210),  // blue
+    Color::Rgb(211, 54, 130),  // magenta
+    Color::Rgb(203, 75, 22),   // orange
+];
+
+/// Ayu dark: warm amber/orange palette
+const FLOW_AYU_DARK: [Color; 8] = [
+    Color::Rgb(255, 180, 84),  // orange (ayu accent)
+    Color::Rgb(255, 110, 80),  // coral
+    Color::Rgb(170, 217, 76),  // green (ayu green)
+    Color::Rgb(95, 196, 220),  // blue (ayu blue)
+    Color::Rgb(210, 154, 230), // purple (ayu purple)
+    Color::Rgb(255, 238, 153), // gold
+    Color::Rgb(240, 130, 160), // pink
+    Color::Rgb(150, 220, 190), // seafoam
+];
+
+/// Flexoki dark: natural ink tones
+const FLOW_FLEXOKI_DARK: [Color; 8] = [
+    Color::Rgb(208, 162, 21),  // yellow (flexoki yellow)
+    Color::Rgb(210, 82, 82),   // red (flexoki red)
+    Color::Rgb(102, 156, 72),  // green (flexoki green)
+    Color::Rgb(36, 131, 123),  // cyan (flexoki cyan)
+    Color::Rgb(142, 139, 206), // purple (flexoki purple)
+    Color::Rgb(218, 112, 44),  // orange (flexoki orange)
+    Color::Rgb(206, 93, 151),  // magenta (flexoki magenta)
+    Color::Rgb(91, 163, 207),  // blue (flexoki blue)
+];
+
+/// Zoegi dark: muted desaturated greens
+const FLOW_ZOEGI_DARK: [Color; 8] = [
+    Color::Rgb(128, 200, 160), // mint (zoegi accent)
+    Color::Rgb(200, 140, 140), // dusty rose
+    Color::Rgb(150, 180, 210), // steel blue (zoegi tag)
+    Color::Rgb(210, 190, 130), // sand
+    Color::Rgb(170, 160, 200), // muted lavender
+    Color::Rgb(130, 200, 200), // pale teal
+    Color::Rgb(200, 170, 150), // warm grey
+    Color::Rgb(180, 200, 140), // sage
+];
+
+/// FFE Dark: nord-inspired cool blues
+const FLOW_FFE_DARK: [Color; 8] = [
+    Color::Rgb(79, 214, 190),  // teal (ffe accent)
+    Color::Rgb(240, 169, 136), // salmon (ffe highlight)
+    Color::Rgb(163, 190, 140), // green (nord green)
+    Color::Rgb(137, 220, 235), // ice blue (ffe tag)
+    Color::Rgb(180, 142, 173), // mauve (nord purple)
+    Color::Rgb(235, 203, 139), // sand (nord yellow)
+    Color::Rgb(191, 151, 210), // light purple
+    Color::Rgb(143, 188, 187), // frost (nord frost)
+];
+
+/// Postrboard dark: vibrant modern palette
+const FLOW_POSTRBOARD_DARK: [Color; 8] = [
+    Color::Rgb(79, 182, 232),  // blue (postrboard accent)
+    Color::Rgb(251, 138, 77),  // orange (postrboard highlight)
+    Color::Rgb(74, 222, 128),  // green (postrboard green)
+    Color::Rgb(96, 165, 250),  // lighter blue (postrboard tag)
+    Color::Rgb(232, 121, 197), // pink
+    Color::Rgb(250, 204, 21),  // yellow
+    Color::Rgb(167, 139, 250), // purple
+    Color::Rgb(45, 212, 191),  // teal
+];
+
+// ── Per-theme flow palettes (light) ──────────────────────────────────
+
+/// Default light: crisp cool tones (cyan accent family)
+const FLOW_DEFAULT_LIGHT: [Color; 8] = [
+    Color::Rgb(0, 120, 170),   // ocean blue (accent family)
+    Color::Rgb(190, 30, 45),   // cherry red
+    Color::Rgb(10, 135, 55),   // emerald
+    Color::Rgb(195, 105, 0),   // tangerine
+    Color::Rgb(115, 55, 190),  // iris
+    Color::Rgb(0, 138, 125),   // jade
+    Color::Rgb(175, 40, 120),  // fuchsia
+    Color::Rgb(95, 115, 15),   // chartreuse
+];
+
+/// Gruvbox light: gruvbox dark accents on cream
+const FLOW_GRUVBOX_LIGHT: [Color; 8] = [
+    Color::Rgb(175, 58, 3),    // orange (gruvbox orange)
+    Color::Rgb(157, 0, 6),     // red (gruvbox red)
+    Color::Rgb(121, 116, 14),  // green (gruvbox green)
+    Color::Rgb(181, 118, 20),  // yellow-brown (gruvbox yellow)
+    Color::Rgb(143, 63, 113),  // purple (gruvbox purple)
+    Color::Rgb(69, 133, 136),  // aqua (gruvbox aqua)
+    Color::Rgb(7, 102, 120),   // blue-teal (gruvbox blue)
+    Color::Rgb(130, 100, 10),  // olive
+];
+
+/// Solarized light: solarized accent palette (same hues, works on cream)
+const FLOW_SOLARIZED_LIGHT: [Color; 8] = [
+    Color::Rgb(42, 161, 152),  // cyan
+    Color::Rgb(220, 50, 47),   // red
+    Color::Rgb(133, 153, 0),   // green
+    Color::Rgb(181, 137, 0),   // yellow
+    Color::Rgb(108, 113, 196), // violet
+    Color::Rgb(38, 139, 210),  // blue
+    Color::Rgb(211, 54, 130),  // magenta
+    Color::Rgb(203, 75, 22),   // orange
+];
+
+/// Flexoki light: flexoki ink colors on paper
+const FLOW_FLEXOKI_LIGHT: [Color; 8] = [
+    Color::Rgb(173, 131, 1),   // yellow (flexoki yellow)
+    Color::Rgb(175, 48, 51),   // red (flexoki red)
+    Color::Rgb(76, 128, 46),   // green (flexoki green)
+    Color::Rgb(36, 131, 123),  // cyan (flexoki cyan)
+    Color::Rgb(100, 92, 187),  // purple (flexoki purple)
+    Color::Rgb(188, 93, 11),   // orange (flexoki orange)
+    Color::Rgb(165, 55, 120),  // magenta (flexoki magenta)
+    Color::Rgb(32, 90, 165),   // blue (flexoki blue)
+];
+
+/// Ayu light: warm accents on white
+const FLOW_AYU_LIGHT: [Color; 8] = [
+    Color::Rgb(230, 138, 0),   // orange (ayu accent)
+    Color::Rgb(200, 55, 40),   // red
+    Color::Rgb(110, 150, 0),   // green (ayu green)
+    Color::Rgb(55, 160, 190),  // blue (ayu blue)
+    Color::Rgb(163, 122, 204), // purple (ayu purple)
+    Color::Rgb(170, 100, 10),  // amber
+    Color::Rgb(180, 50, 100),  // magenta
+    Color::Rgb(0, 130, 110),   // teal
+];
+
+/// Zoegi light: muted earth tones on white
+const FLOW_ZOEGI_LIGHT: [Color; 8] = [
+    Color::Rgb(40, 100, 75),   // deep green (zoegi accent family)
+    Color::Rgb(150, 50, 50),   // muted red
+    Color::Rgb(60, 95, 140),   // steel blue (zoegi tag family)
+    Color::Rgb(150, 120, 30),  // dark gold
+    Color::Rgb(100, 80, 140),  // muted purple
+    Color::Rgb(0, 110, 110),   // dark teal
+    Color::Rgb(140, 80, 60),   // sienna
+    Color::Rgb(80, 110, 40),   // olive
+];
+
+/// FFE light: nord-inspired deeper tones
+const FLOW_FFE_LIGHT: [Color; 8] = [
+    Color::Rgb(20, 120, 100),  // deep teal (ffe accent family)
+    Color::Rgb(180, 80, 50),   // deep salmon (ffe highlight family)
+    Color::Rgb(80, 140, 70),   // forest green
+    Color::Rgb(30, 110, 140),  // deep blue (ffe tag family)
+    Color::Rgb(130, 80, 130),  // plum
+    Color::Rgb(150, 120, 30),  // dark gold
+    Color::Rgb(120, 70, 150),  // purple
+    Color::Rgb(0, 120, 120),   // dark cyan
+];
+
+/// Postrboard light: vivid modern on white
+const FLOW_POSTRBOARD_LIGHT: [Color; 8] = [
+    Color::Rgb(2, 110, 170),   // blue (postrboard accent family)
+    Color::Rgb(194, 65, 12),   // burnt orange (postrboard highlight)
+    Color::Rgb(22, 128, 61),   // green
+    Color::Rgb(12, 74, 110),   // navy (postrboard tag)
+    Color::Rgb(168, 50, 130),  // magenta
+    Color::Rgb(161, 130, 0),   // gold
+    Color::Rgb(109, 60, 170),  // purple
+    Color::Rgb(0, 140, 130),   // teal
 ];
 
 pub const THEMES: &[Theme] = &[
@@ -58,7 +230,7 @@ pub const THEMES: &[Theme] = &[
     // 0: Default
     Theme {
         name: "Default",
-        bg: Color::Reset,
+        bg: Color::Rgb(22, 22, 30),
         fg: Color::White,
         accent: Color::Rgb(0, 217, 255),
         muted: Color::DarkGray,
@@ -76,7 +248,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(180, 140, 255),
         hex_other: Color::Rgb(255, 200, 60),
         hex_offset: Color::DarkGray,
-        flow_colors: FLOW_DARK,
+        flow_colors: FLOW_DEFAULT_DARK,
     },
     // 1: Gruvbox
     Theme {
@@ -99,7 +271,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(211, 134, 155),
         hex_other: Color::Rgb(250, 189, 47),
         hex_offset: Color::Rgb(146, 131, 116),
-        flow_colors: FLOW_DARK,
+        flow_colors: FLOW_GRUVBOX_DARK,
     },
     // 2: Solarized
     Theme {
@@ -122,7 +294,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(108, 113, 196),
         hex_other: Color::Rgb(181, 137, 0),
         hex_offset: Color::Rgb(131, 148, 150),
-        flow_colors: FLOW_DARK,
+        flow_colors: FLOW_SOLARIZED_DARK,
     },
     // 3: Ayu
     Theme {
@@ -145,7 +317,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(210, 154, 230),
         hex_other: Color::Rgb(255, 180, 84),
         hex_offset: Color::Rgb(92, 103, 115),
-        flow_colors: FLOW_DARK,
+        flow_colors: FLOW_AYU_DARK,
     },
     // 4: Flexoki
     Theme {
@@ -168,7 +340,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(142, 139, 206),
         hex_other: Color::Rgb(208, 162, 21),
         hex_offset: Color::Rgb(135, 133, 128),
-        flow_colors: FLOW_DARK,
+        flow_colors: FLOW_FLEXOKI_DARK,
     },
     // 5: Zoegi
     Theme {
@@ -191,7 +363,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(150, 180, 210),
         hex_other: Color::Rgb(128, 200, 160),
         hex_offset: Color::Rgb(89, 89, 89),
-        flow_colors: FLOW_DARK,
+        flow_colors: FLOW_ZOEGI_DARK,
     },
     // 6: FFE Dark
     Theme {
@@ -214,7 +386,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(137, 220, 235),
         hex_other: Color::Rgb(240, 169, 136),
         hex_offset: Color::Rgb(155, 162, 175),
-        flow_colors: FLOW_DARK,
+        flow_colors: FLOW_FFE_DARK,
     },
     // 7: Postrboard
     Theme {
@@ -237,31 +409,31 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(96, 165, 250),
         hex_other: Color::Rgb(251, 138, 77),
         hex_offset: Color::Rgb(124, 141, 163),
-        flow_colors: FLOW_DARK,
+        flow_colors: FLOW_POSTRBOARD_DARK,
     },
     // ── Light themes ────────────────────────────────────────────────
     // 8: Default Light
     Theme {
         name: "Default Light",
         bg: Color::Reset,
-        fg: Color::Rgb(40, 40, 50),
-        accent: Color::Rgb(0, 140, 180),
-        muted: Color::Rgb(120, 120, 130),
-        border: Color::Rgb(180, 180, 190),
-        highlight_bg: Color::Rgb(220, 225, 235),
-        highlight_fg: Color::Rgb(30, 30, 40),
-        stripe_bg: Color::Rgb(240, 240, 245),
-        key_bg: Color::Rgb(180, 180, 190),
-        key_fg: Color::Rgb(40, 40, 50),
-        tag: Color::Rgb(100, 80, 180),
-        panel_bg: Color::Rgb(235, 235, 240),
-        hex_null: Color::Rgb(120, 120, 130),
-        hex_ascii: Color::Rgb(22, 120, 50),
-        hex_space: Color::Rgb(0, 120, 150),
-        hex_high: Color::Rgb(100, 80, 180),
-        hex_other: Color::Rgb(160, 100, 10),
-        hex_offset: Color::Rgb(120, 120, 130),
-        flow_colors: FLOW_LIGHT,
+        fg: Color::Rgb(30, 33, 43),
+        accent: Color::Rgb(0, 145, 200),
+        muted: Color::Rgb(140, 145, 155),
+        border: Color::Rgb(200, 205, 215),
+        highlight_bg: Color::Rgb(215, 228, 242),
+        highlight_fg: Color::Rgb(12, 60, 90),
+        stripe_bg: Color::Rgb(243, 245, 250),
+        key_bg: Color::Rgb(0, 145, 200),
+        key_fg: Color::Rgb(255, 255, 255),
+        tag: Color::Rgb(120, 70, 200),
+        panel_bg: Color::Rgb(232, 236, 244),
+        hex_null: Color::Rgb(170, 175, 185),
+        hex_ascii: Color::Rgb(12, 132, 54),
+        hex_space: Color::Rgb(0, 130, 175),
+        hex_high: Color::Rgb(120, 70, 200),
+        hex_other: Color::Rgb(200, 120, 0),
+        hex_offset: Color::Rgb(155, 160, 172),
+        flow_colors: FLOW_DEFAULT_LIGHT,
     },
     // 9: Gruvbox Light
     Theme {
@@ -284,7 +456,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(143, 63, 113),
         hex_other: Color::Rgb(175, 58, 3),
         hex_offset: Color::Rgb(146, 131, 116),
-        flow_colors: FLOW_LIGHT,
+        flow_colors: FLOW_GRUVBOX_LIGHT,
     },
     // 10: Solarized Light
     Theme {
@@ -307,7 +479,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(108, 113, 196),
         hex_other: Color::Rgb(181, 137, 0),
         hex_offset: Color::Rgb(147, 161, 161),
-        flow_colors: FLOW_LIGHT,
+        flow_colors: FLOW_SOLARIZED_LIGHT,
     },
     // 11: Flexoki Light
     Theme {
@@ -330,7 +502,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(100, 92, 187),
         hex_other: Color::Rgb(173, 131, 1),
         hex_offset: Color::Rgb(111, 110, 105),
-        flow_colors: FLOW_LIGHT,
+        flow_colors: FLOW_FLEXOKI_LIGHT,
     },
     // 12: Ayu Light
     Theme {
@@ -353,7 +525,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(163, 122, 204),
         hex_other: Color::Rgb(230, 138, 0),
         hex_offset: Color::Rgb(153, 160, 166),
-        flow_colors: FLOW_LIGHT,
+        flow_colors: FLOW_AYU_LIGHT,
     },
     // 13: Zoegi Light
     Theme {
@@ -376,7 +548,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(80, 120, 160),
         hex_other: Color::Rgb(150, 110, 30),
         hex_offset: Color::Rgb(89, 89, 89),
-        flow_colors: FLOW_LIGHT,
+        flow_colors: FLOW_ZOEGI_LIGHT,
     },
     // 14: FFE Light
     Theme {
@@ -399,7 +571,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(58, 142, 164),
         hex_other: Color::Rgb(192, 121, 32),
         hex_offset: Color::Rgb(74, 80, 96),
-        flow_colors: FLOW_LIGHT,
+        flow_colors: FLOW_FFE_LIGHT,
     },
     // 15: Postrboard Light
     Theme {
@@ -422,7 +594,7 @@ pub const THEMES: &[Theme] = &[
         hex_high: Color::Rgb(12, 74, 110),
         hex_other: Color::Rgb(194, 65, 12),
         hex_offset: Color::Rgb(100, 116, 139),
-        flow_colors: FLOW_LIGHT,
+        flow_colors: FLOW_POSTRBOARD_LIGHT,
     },
 ];
 
@@ -638,7 +810,7 @@ fn nudge(c: u8, delta: i16) -> u8 {
     }
 }
 
-/// Patch the two Default themes (indices 0 and 8) so their `stripe_bg`,
+/// Patch the two Default themes (indices 0 and 8) so their `bg`, `stripe_bg`,
 /// `panel_bg`, and `highlight_bg` are derived from the actual terminal
 /// background colour rather than hardcoded guesses.
 pub fn patch_default_themes(themes: &mut [Theme], r: u8, g: u8, b: u8) {
@@ -650,6 +822,7 @@ pub fn patch_default_themes(themes: &mut [Theme], r: u8, g: u8, b: u8) {
     // Highlight: strong shift.
     let highlight_d: i16 = if light { -30 } else { 20 };
 
+    let bg = Color::Rgb(r, g, b);
     let stripe = Color::Rgb(nudge(r, stripe_d), nudge(g, stripe_d), nudge(b, stripe_d));
     let panel = Color::Rgb(nudge(r, panel_d), nudge(g, panel_d), nudge(b, panel_d));
     let highlight = Color::Rgb(
@@ -661,6 +834,7 @@ pub fn patch_default_themes(themes: &mut [Theme], r: u8, g: u8, b: u8) {
     // Index 0 = Default (dark), Index 8 = Default Light.
     for idx in [0, 8] {
         if let Some(t) = themes.get_mut(idx) {
+            t.bg = bg;
             t.stripe_bg = stripe;
             t.panel_bg = panel;
             t.highlight_bg = highlight;
