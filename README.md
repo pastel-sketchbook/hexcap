@@ -1,6 +1,6 @@
 # hexcap
 
-TUI packet capture tool with libpcap and hexyl-style hex dump.
+TUI packet capture tool with libpcap, hexyl-style hex dump, and display filters.
 
 Captures live network packets, displays them in a scrollable table with
 protocol-colored tags, and provides per-packet hex inspection — all in the
@@ -34,6 +34,12 @@ terminal.
 - **Semantic coloring** — RST (red), SYN (green), FIN (amber), ICMP/ARP/DNS tinted rows
 - **Packet diff** — mark two packets and compare hex dumps side-by-side
 - **Capture statistics** — protocol distribution, top talkers, top conversations popup
+- **Display filters** — `\` key opens filter bar; tokens: `tcp`, `udp`, `icmp`, `dns`, `arp`, `port:N`, `ip:ADDR`, `syn`, `rst`, `fin`, `!` negation
+- **GeoIP lookup** — `--geoip path/to/mmdb` appends country code `[XX]` to IP addresses
+- **Packet annotations** — `a` key adds free-text annotation (✎ icon), persisted to `.pcap.annotations` sidecar
+- **Follow speed cycling** — `F` cycles follow-mode speed: off / 1 / 5 / 10 / 25 packet intervals
+- **Bookmark persistence** — bookmarks saved to `.pcap.bookmarks` sidecar files
+- **Multi-interface capture** — `-i en0,lo0` comma-separated; one capture thread per interface
 - **Help overlay** — `?` shows all keybindings in a popup
 - **Vim keybindings** — j/k, g/G, d/u, Enter, Esc, /
 
@@ -70,6 +76,12 @@ hexcap --read capture.pcap
 
 # Limit ring buffer size
 sudo hexcap --max-packets 50000
+
+# Capture on multiple interfaces
+sudo hexcap -i en0,lo0
+
+# Enable GeoIP country lookup
+sudo hexcap --geoip /path/to/GeoLite2-Country.mmdb
 ```
 
 ## Keybindings
@@ -87,7 +99,9 @@ sudo hexcap --max-packets 50000
 | `c`            | Clear all packets            |
 | `/`            | Search (metadata + payload)  |
 | `f`            | Cycle protocol filter        |
-| `F`            | Toggle follow mode           |
+| `F`            | Cycle follow speed (off/1/5/10/25) |
+| `\`            | Open display filter bar       |
+| `a`            | Annotate selected packet      |
 | `p`            | Open process picker          |
 | `P`            | Clear process filter         |
 | `n`            | Open flows table             |
@@ -163,6 +177,7 @@ src/
   config.rs     — theme persistence (TOML)
   dns.rs        — reverse DNS resolution (libc getnameinfo)
   export.rs     — pcap file writer and reader
+  geoip.rs      — GeoIP country lookup (MaxMind MMDB)
   hex.rs        — hexyl-style hex dump renderer
   packet.rs     — packet parsing (IPv4/IPv6), protocol decode, TLS decode
   process.rs    — process-to-socket resolution (lsof)

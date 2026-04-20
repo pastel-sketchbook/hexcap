@@ -42,7 +42,7 @@ pub fn draw_help(frame: &mut Frame, theme: &Theme) {
     let area = frame.area();
 
     // Size the popup: width fits longest line, height fits all bindings + border.
-    let popup_w = 44.min(area.width.saturating_sub(4));
+    let popup_w = 66.min(area.width.saturating_sub(4));
     #[allow(clippy::cast_possible_truncation)]
     let popup_h = (BINDINGS.len() as u16 + 3).min(area.height.saturating_sub(2));
     let x = area.x + (area.width.saturating_sub(popup_w)) / 2;

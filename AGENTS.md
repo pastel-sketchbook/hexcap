@@ -17,7 +17,8 @@ view its raw bytes in a hexyl-style hex dump pane. Support filtering by
 protocol, process, and flow. Support interface switching, pcap export/import,
 clipboard copy, bookmarks, live bandwidth tracking, DNS resolution, TCP stream
 follow, TLS handshake decode, mouse scrolling, column resizing, semantic packet
-coloring, capture statistics, packet diff, and keyboard shortcut help.
+coloring, capture statistics, packet diff, display filters, GeoIP lookup,
+packet annotations, follow speed cycling, and keyboard shortcut help.
 
 ## Build & Run
 
@@ -40,6 +41,7 @@ coloring, capture statistics, packet diff, and keyboard shortcut help.
 - `tracing` + `tracing-subscriber` — structured logging.
 - `directories` — XDG config paths for theme persistence.
 - `libc` — reverse DNS resolution via `getnameinfo`.
+- `maxminddb` — GeoIP country lookup from MaxMind MMDB files.
 
 ## Architecture
 
@@ -58,6 +60,7 @@ src/
   dns.rs        — reverse DNS resolution via libc getnameinfo, batch resolver,
                   display helper
   export.rs     — write_pcap + read_pcap (classic libpcap format)
+  geoip.rs      — MaxMind MMDB lookup, country code [XX] suffix for IPs
   hex.rs        — hexyl-style hex dump renderer, hex_dump_plain, hex_string
   packet.rs     — packet parsing (IPv4/IPv6), DecodedField, FlowKey,
                   TCP/UDP/ICMP/ARP decode, TLS handshake decode (SNI extraction)
@@ -118,6 +121,12 @@ and their light variants.
 - **Packet diff**: `x` marks first packet, `x` again on second opens side-by-side hex diff overlay.
 - **Capture stats**: On-the-fly protocol distribution, top talkers, top conversations from packet buffer.
 - **Export auto-filename**: `w` without `--write` generates `hexcap_{unix_seconds}.pcap`.
+- **Display filters**: `\` key opens filter bar; tokens: `tcp`, `udp`, `icmp`, `dns`, `arp`, `port:N`, `ip:ADDR`, `syn`, `rst`, `fin`, `!` negation.
+- **GeoIP lookup**: `--geoip path/to/mmdb` enables country code `[XX]` suffix on IP addresses via `maxminddb`.
+- **Packet annotations**: `a` key adds free-text annotation (✎ icon); persisted to `.pcap.annotations` sidecar files.
+- **Follow speed cycling**: `F` cycles follow-mode speed — off / 1 / 5 / 10 / 25 packet intervals.
+- **Bookmark persistence**: Bookmarks saved to `.pcap.bookmarks` sidecar files alongside pcap exports.
+- **Multi-interface capture**: `-i en0,lo0` comma-separated interface list; spawns one capture thread per interface.
 
 ## Conventions
 
