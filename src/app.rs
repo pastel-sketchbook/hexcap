@@ -203,6 +203,9 @@ pub struct App {
     // -- Expert info overlay --
     pub show_expert: bool,
 
+    // -- Protocol hierarchy overlay --
+    pub show_proto_hierarchy: bool,
+
     // -- Time display --
     pub time_format: TimeFormat,
     /// Packet ID set as time reference (t=0 point).
@@ -329,6 +332,7 @@ impl App {
             diff_pair: None,
             tcp_analyser: TcpAnalyser::new(),
             show_expert: false,
+            show_proto_hierarchy: false,
             time_format: TimeFormat::Absolute,
             time_reference: None,
             goto_buf: String::new(),

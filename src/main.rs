@@ -560,6 +560,15 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
         return false;
     }
 
+    // Protocol hierarchy overlay.
+    if app.show_proto_hierarchy {
+        match code {
+            KeyCode::Esc | KeyCode::Char('H' | 'q') => app.show_proto_hierarchy = false,
+            _ => {}
+        }
+        return false;
+    }
+
     // Diff overlay.
     if app.diff_pair.is_some() {
         match code {
@@ -634,6 +643,7 @@ fn handle_list_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Char('?') => app.show_help = true,
         KeyCode::Char('I') => app.show_stats_summary = true,
         KeyCode::Char('E') => app.show_expert = true,
+        KeyCode::Char('H') => app.show_proto_hierarchy = true,
         KeyCode::Char('x') => app.mark_or_diff(),
         KeyCode::Char('a') => app.start_annotate(),
         KeyCode::Char('\\') => app.start_display_filter(),

@@ -32,6 +32,7 @@ const BINDINGS: &[(&str, &str)] = &[
     ("< / >", "Narrow/widen column"),
     ("I", "Capture statistics summary"),
     ("E", "Expert information overlay"),
+    ("H", "Protocol hierarchy & endpoints"),
     ("T", "Cycle time format (abs/rel/delta)"),
     ("R", "Toggle time reference on packet"),
     ("x", "Mark packet for diff / show diff"),

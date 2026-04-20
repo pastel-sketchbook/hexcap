@@ -8,6 +8,7 @@ mod help;
 pub mod helpers;
 mod list;
 mod picker;
+mod proto_hierarchy;
 mod stats;
 mod stats_summary;
 
@@ -70,6 +71,11 @@ pub fn render(frame: &mut Frame, app: &App) {
     // Overlay: expert info.
     if app.show_expert {
         expert_overlay::draw_expert(frame, app, theme);
+    }
+
+    // Overlay: protocol hierarchy.
+    if app.show_proto_hierarchy {
+        proto_hierarchy::draw_proto_hierarchy(frame, app, theme);
     }
 }
 
