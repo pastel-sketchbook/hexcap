@@ -238,6 +238,7 @@ fn main() -> Result<()> {
         .expect("app mutex poisoned")
         .agent_commands
         .clone();
+    let agent_queries = agent::new_queries();
 
     let mut agent_pipe = if let Some(ref cmd) = cli.pipe {
         match agent::AgentPipe::spawn(cmd, agent_output.clone(), &agent_commands) {
@@ -259,7 +260,7 @@ fn main() -> Result<()> {
     };
 
     let mut socket_server = if let Some(ref path) = cli.socket {
-        match agent::SocketServer::bind(path, &agent_commands, cli.max_packets) {
+        match agent::SocketServer::bind(path, &agent_commands, &agent_queries, cli.max_packets) {
             Ok(srv) => {
                 if let Ok(mut a) = app.lock() {
                     a.set_status(format!("Agent socket: {path}"));
@@ -403,6 +404,7 @@ fn main() -> Result<()> {
         &mut socket_server,
         &agent_output,
         &agent_commands,
+        &agent_queries,
     );
 
     disable_raw_mode()?;

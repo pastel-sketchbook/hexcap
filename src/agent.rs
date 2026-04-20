@@ -40,7 +40,7 @@ fn strip_ansi(s: &str) -> String {
 }
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
 // Agent presets
@@ -247,11 +247,118 @@ fn default_view() -> String {
     "list".into()
 }
 
+// ---------------------------------------------------------------------------
+// Query protocol (request/response over socket)
+// ---------------------------------------------------------------------------
+
+/// Query types that agents can send to request data from the TUI.
+///
+/// Sent as `@@HEXCAP:{"type":"query","id":"r1","query":"packets","filter":"tcp","limit":10}`
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "query", rename_all = "snake_case")]
+pub enum QueryKind {
+    /// Return matching packets (with optional display filter and limit).
+    Packets {
+        #[serde(default)]
+        filter: Option<String>,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+    /// Return flow summary table.
+    Flows,
+    /// Return capture statistics (protocol distribution, top talkers).
+    Stats,
+    /// Decode a single packet by ID.
+    Decode {
+        #[serde(alias = "id")]
+        packet_id: u64,
+    },
+    /// Return TCP stream payload for a given flow.
+    Stream {
+        #[serde(default)]
+        flow: Option<String>,
+    },
+    /// Return current status (packet count, paused, view, filters, etc.).
+    Status,
+}
+
+/// A query from an agent, carrying a request ID and the client that sent it.
+#[derive(Debug, Clone)]
+pub struct AgentQuery {
+    /// Request ID chosen by the agent for correlation.
+    pub request_id: String,
+    /// Socket client ID so the response can be routed back.
+    pub client_id: u64,
+    /// The query to execute.
+    pub kind: QueryKind,
+}
+
+/// A response to send back to a specific client.
+#[derive(Debug, Clone, Serialize)]
+pub struct QueryResponse {
+    /// Echoed request ID for correlation.
+    pub id: String,
+    /// Response type marker.
+    #[serde(rename = "type")]
+    pub response_type: String,
+    /// The result data (already serialized as a JSON value).
+    pub data: serde_json::Value,
+}
+
+/// Shared queue of pending queries for the main loop.
+pub type AgentQueries = Arc<Mutex<VecDeque<AgentQuery>>>;
+
+/// Create a new shared query queue.
+pub fn new_queries() -> AgentQueries {
+    Arc::new(Mutex::new(VecDeque::new()))
+}
+
+/// Envelope for parsing incoming `@@HEXCAP:` messages — either a command
+/// (fire-and-forget action) or a query (expects a response).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Envelope {
+    Query {
+        #[serde(rename = "type")]
+        msg_type: String,
+        id: String,
+        #[serde(flatten)]
+        kind: QueryKind,
+    },
+    Command(AgentCommand),
+}
+
+/// Parsed result from an incoming `@@HEXCAP:` line.
+pub enum ParsedMessage {
+    Command(AgentCommand),
+    Query { id: String, kind: QueryKind },
+}
+
 /// Try to parse a line as an agent command. Returns `Some` if the line starts
 /// with `@@HEXCAP:` and the JSON payload is valid.
 pub fn parse_command(line: &str) -> Option<AgentCommand> {
     let json = line.strip_prefix(COMMAND_PREFIX)?;
     serde_json::from_str(json.trim()).ok()
+}
+
+/// Parse a line as either a command or a query.
+pub fn parse_message(line: &str) -> Option<ParsedMessage> {
+    let json = line.strip_prefix(COMMAND_PREFIX)?;
+    let trimmed = json.trim();
+    match serde_json::from_str::<Envelope>(trimmed) {
+        Ok(Envelope::Query {
+            msg_type,
+            id,
+            kind,
+        }) if msg_type == "query" => Some(ParsedMessage::Query { id, kind }),
+        Ok(Envelope::Command(cmd)) => Some(ParsedMessage::Command(cmd)),
+        // Query with wrong type field — ignore.
+        Ok(Envelope::Query { .. }) => None,
+        // Fallback: try as plain command (backward compat).
+        Err(_) => serde_json::from_str::<AgentCommand>(trimmed)
+            .ok()
+            .map(ParsedMessage::Command),
+    }
 }
 
 /// Shared queue of pending agent commands for the main loop.
@@ -422,6 +529,25 @@ impl Drop for AgentPipe {
 
 use std::os::unix::net::UnixListener;
 
+/// Generate a socket path with a random component to prevent guessing.
+///
+/// Format: `/tmp/hexcap_{pid}_{random_hex}.sock`
+pub fn default_socket_path() -> String {
+    let random: u64 = {
+        // Use timestamp nanos XORed with PID as a simple random source.
+        // Not cryptographic, but sufficient to prevent casual guessing.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .subsec_nanos() as u64;
+        nanos ^ (u64::from(std::process::id()) << 32)
+    };
+    std::env::temp_dir()
+        .join(format!("hexcap_{}_{random:x}.sock", std::process::id()))
+        .to_string_lossy()
+        .to_string()
+}
+
 /// A Unix domain socket server that broadcasts JSONL to connected clients
 /// and reads `@@HEXCAP:` commands from them (bidirectional).
 ///
@@ -430,10 +556,19 @@ use std::os::unix::net::UnixListener;
 /// `max_replay` entries (oldest evicted first).
 pub struct SocketServer {
     _listener: UnixListener,
-    clients: Arc<Mutex<Vec<std::os::unix::net::UnixStream>>>,
+    clients: Arc<Mutex<Vec<SocketClient>>>,
     replay_buffer: Arc<Mutex<VecDeque<String>>>,
+    /// Kept alive to ensure the `AtomicU64` outlives the accept thread.
+    #[allow(dead_code)]
+    next_client_id: Arc<std::sync::atomic::AtomicU64>,
     max_replay: usize,
     path: String,
+}
+
+/// A connected socket client with a unique ID for response routing.
+struct SocketClient {
+    id: u64,
+    stream: std::os::unix::net::UnixStream,
 }
 
 impl SocketServer {
@@ -441,7 +576,12 @@ impl SocketServer {
     ///
     /// Each connected client gets a reader thread that parses incoming
     /// `@@HEXCAP:` command lines and pushes them to the shared command queue.
-    pub fn bind(path: &str, commands: &AgentCommands, max_replay: usize) -> Result<Self> {
+    pub fn bind(
+        path: &str,
+        commands: &AgentCommands,
+        queries: &AgentQueries,
+        max_replay: usize,
+    ) -> Result<Self> {
         // Remove stale socket file.
         let _ = std::fs::remove_file(path);
 
@@ -451,22 +591,24 @@ impl SocketServer {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777));
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
             // chown to the real (pre-sudo) user so agents running as that user
             // can connect without permission errors.
             chown_to_real_user(path);
         }
         listener.set_nonblocking(true)?;
 
-        let clients: Arc<Mutex<Vec<std::os::unix::net::UnixStream>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        let clients: Arc<Mutex<Vec<SocketClient>>> = Arc::new(Mutex::new(Vec::new()));
         let replay_buffer: Arc<Mutex<VecDeque<String>>> =
             Arc::new(Mutex::new(VecDeque::with_capacity(max_replay.min(8192))));
+        let next_client_id = Arc::new(std::sync::atomic::AtomicU64::new(1));
 
         // Background thread to accept new connections.
         let accept_clients = Arc::clone(&clients);
         let accept_replay = Arc::clone(&replay_buffer);
         let accept_cmds = Arc::clone(commands);
+        let accept_queries = Arc::clone(queries);
+        let accept_next_id = Arc::clone(&next_client_id);
         let accept_listener = listener
             .try_clone()
             .context("failed to clone UDS listener")?;
@@ -477,6 +619,10 @@ impl SocketServer {
                     match accept_listener.accept() {
                         Ok((stream, _)) => {
                             let _ = stream.set_nonblocking(false);
+                            let client_id = accept_next_id.fetch_add(
+                                1,
+                                std::sync::atomic::Ordering::Relaxed,
+                            );
                             // Clone for broadcast list.
                             if let Ok(mut write_stream) = stream.try_clone() {
                                 // Replay buffered packets to this new client.
@@ -501,21 +647,37 @@ impl SocketServer {
                                     let mut cl = accept_clients
                                         .lock()
                                         .expect("socket clients mutex poisoned");
-                                    cl.push(write_stream);
+                                    cl.push(SocketClient {
+                                        id: client_id,
+                                        stream: write_stream,
+                                    });
                                 }
                             }
                             // Spawn reader thread for this client.
                             let cmds = Arc::clone(&accept_cmds);
+                            let qry = Arc::clone(&accept_queries);
                             thread::Builder::new()
                                 .name("agent-socket-reader".into())
                                 .spawn(move || {
                                     let reader = BufReader::new(stream);
                                     for line in reader.lines() {
                                         let Ok(line) = line else { break };
-                                        if let Some(cmd) = parse_command(&line)
-                                            && let Ok(mut q) = cmds.lock()
-                                        {
-                                            q.push_back(cmd);
+                                        match parse_message(&line) {
+                                            Some(ParsedMessage::Command(cmd)) => {
+                                                if let Ok(mut q) = cmds.lock() {
+                                                    q.push_back(cmd);
+                                                }
+                                            }
+                                            Some(ParsedMessage::Query { id, kind }) => {
+                                                if let Ok(mut q) = qry.lock() {
+                                                    q.push_back(AgentQuery {
+                                                        request_id: id,
+                                                        client_id,
+                                                        kind,
+                                                    });
+                                                }
+                                            }
+                                            None => {}
                                         }
                                     }
                                 })
@@ -534,6 +696,7 @@ impl SocketServer {
             _listener: listener,
             clients,
             replay_buffer,
+            next_client_id,
             max_replay,
             path: path.to_string(),
         })
@@ -551,9 +714,26 @@ impl SocketServer {
         }
         let mut clients = self.clients.lock().expect("socket clients mutex poisoned");
         let msg = format!("{json_line}\n");
-        clients.retain_mut(|stream| {
-            stream.write_all(msg.as_bytes()).is_ok() && stream.flush().is_ok()
+        clients.retain_mut(|client| {
+            client.stream.write_all(msg.as_bytes()).is_ok()
+                && client.stream.flush().is_ok()
         });
+    }
+
+    /// Send a response to a specific client by ID.
+    pub fn respond(&self, client_id: u64, response: &QueryResponse) {
+        let Ok(json) = serde_json::to_string(response) else {
+            return;
+        };
+        let msg = format!("{json}\n");
+        let mut clients = self.clients.lock().expect("socket clients mutex poisoned");
+        for client in clients.iter_mut() {
+            if client.id == client_id {
+                let _ = client.stream.write_all(msg.as_bytes());
+                let _ = client.stream.flush();
+                break;
+            }
+        }
     }
 
     /// Path to the socket file.
@@ -650,5 +830,65 @@ mod tests {
         let line = r#"@@HEXCAP:{"action":"export"}"#;
         let cmd = parse_command(line).expect("should parse");
         assert!(matches!(cmd, AgentCommand::Export { file: None }));
+    }
+
+    #[test]
+    fn parse_query_packets() {
+        let line =
+            r#"@@HEXCAP:{"type":"query","id":"r1","query":"packets","filter":"tcp","limit":10}"#;
+        let msg = parse_message(line).expect("should parse");
+        assert!(matches!(
+            msg,
+            ParsedMessage::Query {
+                id,
+                kind: QueryKind::Packets { .. }
+            } if id == "r1"
+        ));
+    }
+
+    #[test]
+    fn parse_query_flows() {
+        let line = r#"@@HEXCAP:{"type":"query","id":"r2","query":"flows"}"#;
+        let msg = parse_message(line).expect("should parse");
+        assert!(matches!(
+            msg,
+            ParsedMessage::Query {
+                id,
+                kind: QueryKind::Flows
+            } if id == "r2"
+        ));
+    }
+
+    #[test]
+    fn parse_query_status() {
+        let line = r#"@@HEXCAP:{"type":"query","id":"r3","query":"status"}"#;
+        let msg = parse_message(line).expect("should parse");
+        assert!(matches!(
+            msg,
+            ParsedMessage::Query {
+                id,
+                kind: QueryKind::Status
+            } if id == "r3"
+        ));
+    }
+
+    #[test]
+    fn parse_query_decode() {
+        let line = r#"@@HEXCAP:{"type":"query","id":"r4","query":"decode","packet_id":42}"#;
+        let msg = parse_message(line).expect("should parse");
+        assert!(matches!(
+            msg,
+            ParsedMessage::Query {
+                kind: QueryKind::Decode { packet_id: 42 },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn parse_message_command_fallback() {
+        let line = r#"@@HEXCAP:{"action":"pause"}"#;
+        let msg = parse_message(line).expect("should parse");
+        assert!(matches!(msg, ParsedMessage::Command(AgentCommand::Pause)));
     }
 }

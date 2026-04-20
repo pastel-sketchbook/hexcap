@@ -39,7 +39,16 @@ fn execute_agent_command(app: &mut App, cmd: agent::AgentCommand) {
             app.set_status("Agent: resumed".into());
         }
         AgentCommand::Export { file } => {
-            if let Some(path) = file {
+            if let Some(ref path) = file {
+                // Validate: reject path traversal and absolute paths outside /tmp.
+                let p = std::path::Path::new(path);
+                let has_traversal = p.components().any(|c| {
+                    matches!(c, std::path::Component::ParentDir)
+                });
+                if has_traversal {
+                    app.set_status("Agent: export rejected (path traversal)".into());
+                    return;
+                }
                 app.export_path = Some(std::path::PathBuf::from(path));
             }
             let msg = app.export_packets();
@@ -102,6 +111,93 @@ fn execute_agent_command(app: &mut App, cmd: agent::AgentCommand) {
     }
 }
 
+/// Execute a query against the current app state and return a JSON value.
+fn execute_query(app: &App, kind: &agent::QueryKind) -> serde_json::Value {
+    use agent::QueryKind;
+    match kind {
+        QueryKind::Packets { filter, limit } => {
+            let limit = limit.unwrap_or(100).min(10_000);
+            let packets: Vec<&crate::packet::CapturedPacket> = if let Some(f) = filter {
+                app.packets
+                    .iter()
+                    .filter(|p| crate::packet::matches_display_filter(p, f))
+                    .take(limit)
+                    .collect()
+            } else {
+                app.packets.iter().take(limit).collect()
+            };
+            serde_json::to_value(&packets).unwrap_or_default()
+        }
+        QueryKind::Flows => {
+            serde_json::to_value(&app.flows).unwrap_or_default()
+        }
+        QueryKind::Stats => {
+            let total = app.packets.len();
+            let mut proto_counts: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            let mut total_bytes: u64 = 0;
+            for pkt in &app.packets {
+                *proto_counts
+                    .entry(format!("{:?}", pkt.protocol))
+                    .or_default() += 1;
+                total_bytes += pkt.length as u64;
+            }
+            serde_json::json!({
+                "total_packets": total,
+                "total_bytes": total_bytes,
+                "protocols": proto_counts,
+                "flows": app.flows.len(),
+                "paused": app.paused,
+            })
+        }
+        QueryKind::Decode { packet_id } => {
+            if let Some(pkt) = app.packets.iter().find(|p| p.id == *packet_id) {
+                serde_json::to_value(pkt).unwrap_or_default()
+            } else {
+                serde_json::json!({"error": format!("packet #{packet_id} not found")})
+            }
+        }
+        QueryKind::Stream { flow } => {
+            // Find matching flow and collect TCP payload.
+            if let Some(flow_str) = flow {
+                let payload: Vec<u8> = app
+                    .packets
+                    .iter()
+                    .filter(|p| {
+                        let key = crate::packet::FlowKey::new(&p.src, &p.dst);
+                        key.to_string() == *flow_str
+                    })
+                    .flat_map(|p| {
+                        // Extract TCP payload (skip headers).
+                        crate::hex::hex_dump_plain(&p.data)
+                            .into_bytes()
+                    })
+                    .collect();
+                let text = String::from_utf8_lossy(&payload);
+                serde_json::json!({
+                    "flow": flow_str,
+                    "payload_bytes": payload.len(),
+                    "payload_text": text,
+                })
+            } else {
+                serde_json::json!({"error": "flow parameter required"})
+            }
+        }
+        QueryKind::Status => {
+            serde_json::json!({
+                "packets": app.packets.len(),
+                "flows": app.flows.len(),
+                "paused": app.paused,
+                "view": format!("{:?}", app.view),
+                "display_filter": app.display_filter,
+                "dns_enabled": app.dns_enabled,
+                "bookmarks": app.bookmarks.len(),
+                "selected": app.selected,
+            })
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -113,6 +209,7 @@ pub fn run_loop(
     socket_server: &mut Option<agent::SocketServer>,
     agent_output: &agent::AgentOutput,
     agent_commands: &agent::AgentCommands,
+    agent_queries: &agent::AgentQueries,
 ) -> Result<()> {
     let mut refresh_counter: u32 = 0;
     let mut dns_counter: u32 = 0;
@@ -151,14 +248,8 @@ pub fn run_loop(
                     let sock_path = if let Some(ref srv) = *socket_server {
                         srv.path().to_string()
                     } else {
-                        let path = std::env::temp_dir()
-                            .join(format!(
-                                "hexcap_{}.sock",
-                                std::process::id()
-                            ))
-                            .to_string_lossy()
-                            .to_string();
-                        match agent::SocketServer::bind(&path, agent_commands, a.max_packets) {                            Ok(srv) => {
+                        let path = agent::default_socket_path();
+                        match agent::SocketServer::bind(&path, agent_commands, agent_queries, a.max_packets) {                            Ok(srv) => {
                                 *socket_server = Some(srv);
                                 a.socket_path = Some(path.clone());
                                 path
@@ -265,11 +356,8 @@ pub fn run_loop(
                     };
                     a.set_status(msg);
                 } else {
-                    let path = std::env::temp_dir()
-                        .join(format!("hexcap_{}.sock", std::process::id()))
-                        .to_string_lossy()
-                        .to_string();
-                    match agent::SocketServer::bind(&path, agent_commands, a.max_packets) {
+                    let path = agent::default_socket_path();
+                    match agent::SocketServer::bind(&path, agent_commands, agent_queries, a.max_packets) {
                         Ok(srv) => {
                             *socket_server = Some(srv);
                             a.socket_path = Some(path.clone());
@@ -299,6 +387,30 @@ pub fn run_loop(
                 let mut a = app.lock().expect("app mutex poisoned");
                 for cmd in cmds {
                     execute_agent_command(&mut a, cmd);
+                }
+            }
+        }
+
+        // Drain and execute agent queries.
+        {
+            let queries: Vec<agent::AgentQuery> = {
+                let mut q = agent_queries
+                    .lock()
+                    .expect("agent queries mutex poisoned");
+                q.drain(..).collect()
+            };
+            if !queries.is_empty() {
+                let a = app.lock().expect("app mutex poisoned");
+                for query in queries {
+                    let data = execute_query(&a, &query.kind);
+                    let response = agent::QueryResponse {
+                        id: query.request_id,
+                        response_type: "response".into(),
+                        data,
+                    };
+                    if let Some(ref srv) = *socket_server {
+                        srv.respond(query.client_id, &response);
+                    }
                 }
             }
         }
