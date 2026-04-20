@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.95.0"
 description = "TUI packet capture tool with libpcap and hexyl-style hex dump"
+license = "MIT OR BSD-3-Clause"
+authors = ["Pastel Sketchbook <252934749+pastelsketchbook@users.noreply.github.com>"]
 
 [dependencies]
 anyhow = "1.0.102"
