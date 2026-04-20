@@ -76,14 +76,20 @@ pub fn draw_header(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     left_spans.push(status_badge(app.paused, theme));
     frame.render_widget(Paragraph::new(Line::from(left_spans)), cols[0]);
 
-    // Right: packet count
-    let right_spans = vec![
-        Span::styled(
-            format!("{}", app.packets.len()),
-            Style::default().add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(" pkts", Style::default().fg(theme.muted)),
-    ];
+    // Right: GeoIP badge (if loaded) + packet count
+    let mut right_spans = Vec::new();
+    if app.geoip_enabled {
+        right_spans.push(Span::styled(
+            "GeoIP",
+            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
+        ));
+        right_spans.push(Span::raw("  "));
+    }
+    right_spans.push(Span::styled(
+        format!("{}", app.packets.len()),
+        Style::default().add_modifier(Modifier::BOLD),
+    ));
+    right_spans.push(Span::styled(" pkts", Style::default().fg(theme.muted)));
     frame.render_widget(
         Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right),
         cols[1],

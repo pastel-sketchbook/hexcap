@@ -203,8 +203,19 @@ fn main() -> Result<()> {
         cli.write.map(std::path::PathBuf::from),
     )));
 
-    // Load GeoIP database if provided.
-    let geoip_db = if let Some(ref path) = cli.geoip {
+    // Load GeoIP database if provided, or auto-detect common filenames.
+    let geoip_path = cli.geoip.clone().or_else(|| {
+        let candidates = [
+            "country.mmdb",
+            "GeoLite2-Country.mmdb",
+            "GeoLite2-City.mmdb",
+        ];
+        candidates
+            .iter()
+            .find(|p| std::path::Path::new(p).exists())
+            .map(|p| p.to_string())
+    });
+    let geoip_db = if let Some(ref path) = geoip_path {
         match geoip::GeoDb::open(std::path::Path::new(path)) {
             Ok(db) => {
                 if let Ok(mut a) = app.lock() {
